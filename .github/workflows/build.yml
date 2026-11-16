@@ -43,6 +43,14 @@ jobs:
           import android.os.Environment;
           import android.provider.MediaStore;
           import android.util.Base64;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Canvas;
+          import android.graphics.Matrix;
+          import android.graphics.Paint;
+          import android.graphics.Typeface;
+          import org.json.JSONObject;
+          import com.getcapacitor.JSArray;
           import com.getcapacitor.JSObject;
           import com.getcapacitor.Plugin;
           import com.getcapacitor.PluginCall;
@@ -92,6 +100,155 @@ jobs:
                 cr.update(u, done, null, null);
                 JSObject r = new JSObject(); r.put("ok", true); call.resolve(r);
               } catch (Exception e) {
+                call.reject(String.valueOf(e.getMessage()));
+              }
+            }
+
+            private static byte[] enc(android.graphics.Bitmap b, int q) {
+              java.io.ByteArrayOutputStream s = new java.io.ByteArrayOutputStream();
+              b.compress(android.graphics.Bitmap.CompressFormat.JPEG, q, s);
+              return s.toByteArray();
+            }
+
+            private static android.graphics.Bitmap fit(android.graphics.Bitmap b, int L) {
+              int m = Math.max(b.getWidth(), b.getHeight());
+              if (L <= 0 || m <= L) return b;
+              float k = (float) L / m;
+              return android.graphics.Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * k)), Math.max(1, Math.round(b.getHeight() * k)), true);
+            }
+
+            @PluginMethod
+            public void process(PluginCall call) {
+              try {
+                long t0 = System.currentTimeMillis();
+                String folder = call.getString("folder", "현장사진");
+                String name = call.getString("name");
+                String data = call.getString("data");
+                double ratio = call.getDouble("ratio", 0.0);
+          double zoom = call.getDouble("zoom", 1.0);
+                int lng = call.getInt("long", 0);
+                int q = call.getInt("q", 90);
+                int thL = call.getInt("thumb", 360);
+                int medL = call.getInt("med", 1600);
+                JSArray lines = call.getArray("lines");
+                String rel = Environment.DIRECTORY_PICTURES + "/" + folder;
+                Uri coll = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+                ContentResolver cr = getContext().getContentResolver();
+                Cursor c = cr.query(coll, new String[]{MediaStore.MediaColumns._ID},
+                    MediaStore.MediaColumns.DISPLAY_NAME + "=? AND " + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                    new String[]{name, rel + "/"}, null);
+                if (c != null) {
+                  boolean found = c.moveToFirst();
+                  c.close();
+                  if (found) { JSObject r = new JSObject(); r.put("ok", true); r.put("existed", true); call.resolve(r); return; }
+                }
+                byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+                BitmapFactory.Options bo = new BitmapFactory.Options();
+                bo.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bo);
+                int deg = 0;
+                try {
+                  android.media.ExifInterface ex = new android.media.ExifInterface(new java.io.ByteArrayInputStream(bytes));
+                  int ori = ex.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1);
+                  if (ori == 6) deg = 90; else if (ori == 3) deg = 180; else if (ori == 8) deg = 270;
+                } catch (Exception e) { }
+                int sample = 1;
+                int big = Math.max(bo.outWidth, bo.outHeight);
+                if (lng > 0) { double zf = zoom > 1.01 ? zoom : 1.0; while (big / (sample * 2.0) >= lng * zf) sample *= 2; }
+                BitmapFactory.Options o2 = new BitmapFactory.Options();
+                o2.inSampleSize = sample;
+                Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o2);
+                bytes = null;
+                if (bmp == null) { call.reject("decode failed"); return; }
+                if (deg != 0) {
+                  Matrix mr = new Matrix();
+                  mr.postRotate(deg);
+                  Bitmap rot = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), mr, true);
+                  if (rot != bmp) bmp.recycle();
+                  bmp = rot;
+                }
+                int sw = bmp.getWidth(), sh = bmp.getHeight(), sx = 0, sy = 0;
+          if (zoom > 1.01) {
+            int zw = (int) Math.round(sw / zoom), zh = (int) Math.round(sh / zoom);
+            sx = (sw - zw) / 2; sy = (sh - zh) / 2; sw = zw; sh = zh;
+          }
+                if (ratio > 0) {
+                  double rr = sw > sh ? 1.0 / ratio : ratio;
+                  double cur = (double) sw / sh;
+                  if (cur > rr + 0.01) { int nw = (int) Math.round(sh * rr); sx += (int) Math.round((sw - nw) / 2.0); sw = nw; }
+                  else if (cur < rr - 0.01) { int nh = (int) Math.round(sw / rr); sy += (int) Math.round((sh - nh) / 2.0); sh = nh; }
+                }
+                float k = 1f;
+                if (lng > 0 && Math.max(sw, sh) > lng) k = (float) lng / Math.max(sw, sh);
+                Bitmap out;
+                if (k < 1f) {
+                  Matrix ms = new Matrix();
+                  ms.postScale(k, k);
+                  out = Bitmap.createBitmap(bmp, sx, sy, sw, sh, ms, true);
+                } else if (sx != 0 || sy != 0 || sw != bmp.getWidth() || sh != bmp.getHeight()) {
+                  out = Bitmap.createBitmap(bmp, sx, sy, sw, sh);
+                } else {
+                  out = bmp;
+                }
+                if (out != bmp) bmp.recycle();
+                if (!out.isMutable()) {
+                  Bitmap mu = out.copy(Bitmap.Config.ARGB_8888, true);
+                  out.recycle();
+                  out = mu;
+                }
+                long t1 = System.currentTimeMillis();
+                if (lines != null && lines.length() > 0) {
+                  Canvas cv = new Canvas(out);
+                  int cw = out.getWidth(), ch = out.getHeight();
+                  int base = Math.min(cw, ch);
+                  int bigFs = Math.round(base * 0.052f), smFs = Math.round(base * 0.032f);
+                  int px = Math.round(base * 0.055f);
+                  int maxW = cw - px * 2;
+                  float y = ch - Math.round(base * 0.03f);
+                  Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  p.setColor(0xFFFF9F1A);
+                  p.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+                  for (int i = lines.length() - 1; i >= 0; i--) {
+                    JSONObject ln = lines.getJSONObject(i);
+                    int fs = ln.optBoolean("big", false) ? bigFs : smFs;
+                    String t = ln.getString("t");
+                    p.setTextSize(fs);
+                    float tw = p.measureText(t);
+                    if (tw > maxW) { fs = Math.max(8, (int) Math.floor(fs * (float) maxW / tw)); p.setTextSize(fs); }
+                    p.setShadowLayer(Math.max(1f, fs * 0.12f), fs * 0.04f, fs * 0.04f, 0x99000000);
+                    cv.drawText(t, px, y, p);
+                    if (i > 0) {
+                      int nf = lines.getJSONObject(i - 1).optBoolean("big", false) ? bigFs : smFs;
+                      y -= Math.round(nf * 0.95f + fs * 0.25f);
+                    }
+                  }
+                }
+                long t2 = System.currentTimeMillis();
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                v.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg");
+                v.put(MediaStore.MediaColumns.RELATIVE_PATH, rel);
+                v.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                Uri u = cr.insert(coll, v);
+                if (u == null) { call.reject("insert failed"); return; }
+                OutputStream os = cr.openOutputStream(u);
+                out.compress(Bitmap.CompressFormat.JPEG, q, os);
+                os.close();
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                cr.update(u, done, null, null);
+                long t3 = System.currentTimeMillis();
+                JSObject res = new JSObject();
+                res.put("ok", true);
+                res.put("thumb", Base64.encodeToString(enc(fit(out, thL), 70), Base64.NO_WRAP));
+                res.put("med", Base64.encodeToString(enc(fit(out, medL), 85), Base64.NO_WRAP));
+                res.put("w", out.getWidth());
+                res.put("h", out.getHeight());
+                res.put("t1", t1 - t0);
+                res.put("t2", t2 - t1);
+                res.put("t3", t3 - t2);
+                call.resolve(res);
+              } catch (Throwable e) {
                 call.reject(String.valueOf(e.getMessage()));
               }
             }
@@ -162,4 +319,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "apk-${{ github.run_number }}" memo-camera.apk --title "메모 카메라 APK ${{ github.run_number }}" --notes "폰에서 memo-camera.apk 를 눌러 설치하세요"
+          gh release create "apk-${{ github.run_number }}" memo-camera.apk --title "지안평 현장조사 APK ${{ github.run_number }}" --notes "폰에서 memo-camera.apk 를 눌러 설치하세요"
