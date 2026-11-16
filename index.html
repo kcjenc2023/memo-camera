@@ -75,6 +75,7 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
   </div>
 
   <div class="top">
+    <div id="apptitle" style="font-size:13px;font-weight:700;letter-spacing:.5px;color:#ffffffcc;text-shadow:0 1px 3px #000;margin:-4px 0 6px 4px;pointer-events:none">지안평 현장조사 앱 개발 : 김철준</div>
     <div class="row">
       <input id="memo" type="text" placeholder="메모 (예: BD-1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button class="btn" id="mclr" title="메모 지우기" style="padding:12px 13px">✕</button>
@@ -981,7 +982,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v16 · 2026-11-16';
+var VER='v20 · 2026-11-16';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
