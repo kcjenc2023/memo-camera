@@ -129,6 +129,13 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
       <div class="fld"><label>해상도(사이즈)</label><select id="s-res"></select><small id="s-resinfo"></small></div>
       <div class="fld"><label>JPG 화질</label><select id="s-q"><option value="0.95">높음</option><option value="0.9">표준</option><option value="0.8">작은 파일</option><option value="0.7">더 작은 파일</option></select><small>비율을 바꾸거나 크기를 줄이거나 메모를 새길 때 적용됩니다.</small></div>
       <div class="fld"><label>카메라(렌즈)</label><select id="s-cam"></select><small>초광각 같은 렌즈가 목록에 있으면 선택해서 건물 전체를 담을 수 있습니다. 목록에 없으면 이 브라우저가 해당 렌즈를 열어 주지 않는 것입니다. 촬영 화면에서 화면 아래 확대 버튼(1x, 2x…)이나 두 손가락으로 벌려서 확대합니다.</small></div>
+      <div class="fld"><label>확대 버튼에 렌즈 연결</label>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div><small style="display:block;margin:0 0 3px">0.5x 버튼 (초광각 렌즈)</small><select id="s-lw"></select></div>
+          <div><small style="display:block;margin:0 0 3px">3x 버튼 (망원 렌즈)</small><select id="s-l3"></select></div>
+          <div><small style="display:block;margin:0 0 3px">5x 버튼 (망원 렌즈)</small><select id="s-l5"></select></div>
+        </div>
+        <small>이 폰의 0.5x·3x·5x는 각각 다른 렌즈입니다. 목록의 번호가 어느 렌즈인지는 직접 확인해야 합니다. 하나 고른 뒤 설정을 닫고 촬영 화면의 해당 버튼을 눌러 보세요. 시야가 아주 넓으면 초광각, 멀리 당겨지면 망원입니다. 아니면 다른 번호로 바꾸세요. 한 번 맞추면 저장됩니다.</small></div>
       <div class="fld" id="s-dirbox" hidden><label>저장 폴더 (지원되는 브라우저만)</label>
         <div style="display:flex;gap:8px"><button class="btn" id="s-dirpick" style="flex:1;min-height:44px;font-size:15px">저장 폴더 지정</button><button class="btn" id="s-dirclear" style="min-height:44px;font-size:15px">해제</button></div>
         <small id="s-dirname"></small><small>지정하면 사진이 그 폴더 안의 "사업명" 폴더에 다운로드 알림 없이 바로 저장됩니다.</small></div>
@@ -232,16 +239,18 @@ function updateCnt(){
 function bump(m){var c=counts();c[m]=(c[m]||0)+1;store.set('cnt'+now().date,c);updateCnt()}
 
 /* 카메라 */
+var lensOverride=null,curLens='';
+function camId(){return lensOverride!==null?lensOverride:cfg.cam}
 async function startCamera(){
   try{
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저/주소에서는 카메라를 쓸 수 없습니다.');
     if(stream)stream.getTracks().forEach(function(t){t.stop()});
     var vc=cfg.fast?{width:{ideal:4032},height:{ideal:3024}}:{width:{ideal:1920},height:{ideal:1440}};
     try{
-      stream=await navigator.mediaDevices.getUserMedia({video:Object.assign({},vc,cfg.cam?{deviceId:{exact:cfg.cam}}:{facingMode:{ideal:'environment'}}),audio:false});
+      stream=await navigator.mediaDevices.getUserMedia({video:Object.assign({},vc,camId()?{deviceId:{exact:camId()}}:{facingMode:{ideal:'environment'}}),audio:false});
     }catch(e1){
-      if(!cfg.cam)throw e1;
-      cfg.cam='';saveCfg();
+      if(!camId())throw e1;
+      if(lensOverride!==null){lensOverride=null;curLens='';toast('그 렌즈를 열 수 없어 기본 렌즈로 돌아갑니다',2000)}else{cfg.cam='';saveCfg()}
       stream=await navigator.mediaDevices.getUserMedia({video:Object.assign({},vc,{facingMode:{ideal:'environment'}}),audio:false});
     }
     vid.srcObject=stream;
@@ -271,6 +280,16 @@ async function fillCams(){
     });
     sel.value=cfg.cam||'';
     if(sel.value!==(cfg.cam||''))sel.value='';
+    [['#s-lw','lw'],['#s-l3','l3'],['#s-l5','l5']].forEach(function(p){
+      var e=$(p[0]);if(!e)return;e.innerHTML='';
+      var n=document.createElement('option');n.value='';n.textContent='사용 안 함';e.appendChild(n);
+      ds.forEach(function(d,i){
+        var lb=(d.label||('카메라 '+(i+1))).replace(/facing back/i,'후면').replace(/facing front/i,'전면');
+        var op=document.createElement('option');op.value=d.deviceId;op.textContent=lb;e.appendChild(op);
+      });
+      e.value=cfg[p[1]]||'';if(e.value!==(cfg[p[1]]||''))e.value='';
+    });
+    renderZbar();
   }catch(e){}
 }
 var wl=null;
@@ -609,29 +628,41 @@ function setZoomLive(z){
   var r=zoomRange();z=Math.min(r.max,Math.max(r.min,z));zoomLv=z;
   if(hwZoom){try{track.applyConstraints({advanced:[{zoom:z}]}).catch(function(){})}catch(e){}}
   else vid.style.transform=z>1.01?'scale('+z+')':'';
-  var zl=$('#zlab');if(zl)zl.textContent='Zoom x'+z.toFixed(1)+(hwZoom?'':' (화면 확대)');
+  var zl=$('#zlab');if(zl)zl.textContent='Zoom x'+(z*nomLens()).toFixed(1)+(hwZoom?'':(z>1.01?' (화면 확대)':''));
   var zb=$('#zbar');if(zb){var bs=zb.querySelectorAll('button');for(var i=0;i<bs.length;i++){var t=bs[i].textContent;if(/^[0-9.]+x$/.test(t))bs[i].className=Math.abs(parseFloat(t)-z)<0.05?'on':''}}
 }
+/* 렌즈 전환: key '' = 기본 렌즈(확대), 'lw'/'l3'/'l5' = 연결한 렌즈 */
+async function switchLens(key,v){
+  var want=key?cfg[key]:null;
+  if(key===curLens&&(key||lensOverride===null)){if(!key)setZoom(v);return}
+  if(want!==null&&!want){return}
+  lensOverride=key?want:null;curLens=key;
+  toast(key?(v+'x 렌즈로 전환 중…'):'기본 렌즈로 전환 중…',900);
+  await startCamera();
+  if(!key&&v>1.01)setZoom(v);
+  renderZbar();
+}
+function nomLens(){return curLens==='lw'?0.5:curLens==='l3'?3:curLens==='l5'?5:1}
 function zoomDigital(){return hwZoom?1:zoomLv}
 function renderZbar(){
   var zb=$('#zbar');if(!zb)return;
   zb.innerHTML='';
-  var r=zoomRange(),vals=[];
-  [0.5,0.6,1,2,3,5,10].forEach(function(v){if(v>=r.min-0.001&&v<=r.max+0.001)vals.push(v)});
-  if(vals.indexOf(1)<0)vals.unshift(1);
+  var r=zoomRange(),vals=[0.5,1,2,3,5];
+  var lensChips={};
+  if(cfg.lw)lensChips[0.5]='lw';if(cfg.l3)lensChips[3]='l3';if(cfg.l5)lensChips[5]='l5';
   var near=vals.reduce(function(a,b){return Math.abs(b-zoomLv)<Math.abs(a-zoomLv)?b:a});
   vals.forEach(function(v){
     var b=document.createElement('button');
-    var on=Math.abs(zoomLv-v)<0.05;
-    b.textContent=(v<1?v:v)+'x';if(on)b.className='on';
-    b.onclick=function(){setZoom(v)};
+    var lk=lensChips[v],on=lk?(curLens===lk):(curLens===''&&Math.abs(zoomLv-v)<0.05);
+    b.textContent=v+'x';if(on)b.className='on';
+    b.onclick=function(){if(lk)switchLens(lk,v);else if(v<1){toast('0.5x는 초광각 렌즈를 연결해야 합니다.\n설정 → 확대 버튼에 렌즈 연결',2600);openSet()}else switchLens('',v)};
     zb.appendChild(b);
   });
-  if(!vals.some(function(v){return Math.abs(zoomLv-v)<0.05})){
+  if(curLens===''&&!vals.some(function(v){return Math.abs(zoomLv-v)<0.05})){
     var c=document.createElement('button');c.className='on';c.textContent=zoomLv.toFixed(1)+'x';c.onclick=function(){setZoom(1)};zb.appendChild(c);
   }
   var sp=document.createElement('span');sp.className='sp';zb.appendChild(sp);
-  var zl=document.createElement('div');zl.id='zlab';zl.textContent='Zoom x'+zoomLv.toFixed(1)+(hwZoom?'':' (화면 확대)');zb.appendChild(zl);
+  var zl=document.createElement('div');zl.id='zlab';zl.textContent='Zoom x'+(zoomLv*nomLens()).toFixed(1)+(hwZoom?'':(zoomLv>1.01?' (화면 확대)':''));zb.appendChild(zl);
   var sl=document.createElement('input');sl.type='range';sl.id='zsl';sl.min=r.min;sl.max=r.max;sl.step=0.1;sl.value=zoomLv;
   sl.oninput=function(){setZoomLive(parseFloat(this.value))};zb.appendChild(sl);
   var rb=document.createElement('button');rb.textContent='비율 '+RLABEL[cfg.ratio];rb.onclick=cycleRatio;zb.appendChild(rb);
@@ -1105,12 +1136,16 @@ $('#s-cfgsave').addEventListener('click',function(){
   b.textContent='✓ 저장 완료 (닫기 이동)';b.style.background='#2e9e5b';b.style.color='#fff';
   cfgSaveT=setTimeout(function(){cfgSaveT=0;b.textContent='설정 저장하기';b.style.background='#ffd54a';b.style.color='#000';if(setOpen)back()},1200);
 });
+['lw','l3','l5'].forEach(function(k){
+  var id={lw:'#s-lw',l3:'#s-l3',l5:'#s-l5'}[k];
+  $(id).addEventListener('change',function(){cfg[k]=this.value;saveCfg();renderZbar();if(curLens===k){lensOverride=this.value||null;if(!this.value)curLens='';startCamera()}});
+});
 $('#s-fast').addEventListener('change',function(){cfg.fast=this.value==='1';saveCfg();startCamera();setTimeout(refreshFastInfo,1200)});
 function refreshFastInfo(){
   var el=$('#s-fastinfo');if(!el)return;
   el.textContent='현재 미리보기 화면 크기: '+(vid.videoWidth||'?')+'×'+(vid.videoHeight||'?')+' · 빠른 촬영은 이 크기로 저장됩니다. 고화질 촬영은 사진 한 장을 따로 찍어 더 선명하지만 몇 초 더 걸릴 수 있습니다.';
 }
-$('#s-cam').addEventListener('change',function(){cfg.cam=this.value;saveCfg();startCamera()});
+$('#s-cam').addEventListener('change',function(){cfg.cam=this.value;saveCfg();lensOverride=null;curLens='';startCamera()});
 
 /* 메모 지우기 / 초기화 / 다시 촬영 */
 $('#mclr').addEventListener('click',function(){memoEl.value='';store.set('last','');updateCnt();memoEl.focus()});
@@ -1235,7 +1270,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v24 · 2026-11-16';
+var VER='v26 · 2026-11-17';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
