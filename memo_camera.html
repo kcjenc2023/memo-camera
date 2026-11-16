@@ -33,6 +33,22 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 #toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);z-index:4;background:#000c;padding:10px 16px;border-radius:10px;font-size:15px;max-width:86%;text-align:center;pointer-events:none;opacity:0;transition:opacity .2s}
 #nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
 #nocam .btn{background:#ffd54a;color:#000}
+#thumb{cursor:pointer}
+#gal,#view{position:absolute;inset:0;z-index:6;background:#0b0b0b;display:flex;flex-direction:column}
+#view{z-index:7;background:#000}
+.ghead{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 12px 8px}
+.ghead b{flex:1;font-size:17px}
+#gchips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px;scrollbar-width:none;flex:none}
+#gchips::-webkit-scrollbar{display:none}
+.chip.on{background:#ffd54a;color:#000}
+#ggrid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:0 3px calc(env(safe-area-inset-bottom) + 10px);align-content:start}
+.cell{position:relative;aspect-ratio:1;background:#222}
+.cell img{width:100%;height:100%;object-fit:cover;display:block}
+.cell span{position:absolute;left:0;right:0;bottom:0;font-size:11px;padding:10px 5px 3px;background:linear-gradient(#0000,#000b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{grid-column:1/-1;text-align:center;color:#888;padding:60px 0}
+#vimg{flex:1;min-height:0;width:100%;object-fit:contain}
+#vinfo{flex:1;font-size:13px;color:#ccc;word-break:break-all}
+.vbar{display:flex;gap:8px;justify-content:center;padding:10px 10px calc(env(safe-area-inset-bottom) + 12px);flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -67,6 +83,21 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 
   <div id="flash"></div>
   <div id="toast"></div>
+  <div id="gal" hidden>
+    <div class="ghead"><button class="btn" id="gback">← 닫기</button><b id="gtitle">촬영 사진</b></div>
+    <div id="gchips"></div>
+    <div id="ggrid"></div>
+  </div>
+  <div id="view" hidden>
+    <div class="ghead"><button class="btn" id="vback">← 목록</button><div id="vinfo"></div></div>
+    <img id="vimg" alt="">
+    <div class="vbar">
+      <button class="btn" id="vprev">◀ 최근</button>
+      <button class="btn" id="vnext">이전 ▶</button>
+      <button class="btn" id="vsave">다시 저장</button>
+      <button class="btn" id="vdel">삭제</button>
+    </div>
+  </div>
   <input type="file" id="natin" accept="image/*" capture="environment" hidden>
 </div>
 
@@ -183,6 +214,7 @@ async function process(blob){
   if($('#stamp').checked){try{blob=await stampBlob(blob,memo)}catch(e){}}
   var name=fileName(memo);
   save(blob,name);bump(memo);pushRecent(memo);
+  addShot(blob,memo,name).then(refreshThumb).catch(function(){});
   toast('저장: '+name);
 }
 
@@ -219,6 +251,143 @@ natin.addEventListener('change',async function(){
 document.addEventListener('visibilitychange',function(){
   if(!document.hidden&&(!track||track.readyState==='ended'))startCamera();
 });
+
+/* ===== 갤러리 (앱 안에 보관: IndexedDB) ===== */
+var dbp=null;
+function db(){
+  if(dbp)return dbp;
+  dbp=new Promise(function(res,rej){
+    try{
+      var r=indexedDB.open('memocam',1);
+      r.onupgradeneeded=function(){r.result.createObjectStore('shots',{keyPath:'id',autoIncrement:true})};
+      r.onsuccess=function(){res(r.result)};
+      r.onerror=function(){rej(r.error)};
+    }catch(e){rej(e)}
+  });
+  return dbp;
+}
+function tx(mode,fn){
+  return db().then(function(d){return new Promise(function(res,rej){
+    var t=d.transaction('shots',mode),out=fn(t.objectStore('shots'));
+    t.oncomplete=function(){res(out?out.result:undefined)};
+    t.onerror=t.onabort=function(){rej(t.error)};
+  })});
+}
+async function makeThumb(blob){
+  try{
+    var bmp=await createImageBitmap(blob),k=Math.min(1,360/Math.max(bmp.width,bmp.height));
+    var c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);if(bmp.close)bmp.close();
+    return await canvasBlob(c,0.7);
+  }catch(e){return null}
+}
+async function addShot(blob,memo,name){
+  var th=await makeThumb(blob);
+  await tx('readwrite',function(s){return s.add({name:name,memo:memo,ts:Date.now(),blob:blob,thumb:th||blob})});
+}
+function allShots(){return tx('readonly',function(s){return s.getAll()}).then(function(a){return (a||[]).reverse()})}
+function delShot(id){return tx('readwrite',function(s){return s.delete(id)})}
+function refreshThumb(){
+  allShots().then(function(a){
+    var th=$('#thumb');
+    if(lastThumb){URL.revokeObjectURL(lastThumb);lastThumb=null}
+    if(a.length){lastThumb=URL.createObjectURL(a[0].thumb);th.src=lastThumb;th.hidden=false}else{th.hidden=true}
+  }).catch(function(){});
+}
+
+var shots=[],gurls=[],gfilter='',vidx=-1,galOpen=false,viewOpen=false,vurl=null,delTimer=0;
+function shown(){return shots.filter(function(s){return !gfilter||s.memo===gfilter})}
+function revokeAll(a){a.forEach(function(u){URL.revokeObjectURL(u)})}
+
+async function openGal(){
+  try{shots=await allShots()}catch(e){shots=[]}
+  gfilter='';renderGal();
+  $('#gal').hidden=false;galOpen=true;
+  try{history.pushState({o:'gal'},'')}catch(e){}
+}
+function renderGal(){
+  revokeAll(gurls);gurls=[];
+  var list=shown();
+  $('#gtitle').textContent='촬영 사진 '+list.length+'장';
+  var memos=[];shots.forEach(function(s){if(memos.indexOf(s.memo)<0)memos.push(s.memo)});
+  var gc=$('#gchips');gc.innerHTML='';
+  [''].concat(memos).forEach(function(m){
+    var b=document.createElement('button');b.className='chip'+(m===gfilter?' on':'');
+    b.textContent=m||'전체';b.onclick=function(){gfilter=m;renderGal()};gc.appendChild(b);
+  });
+  var g=$('#ggrid');g.innerHTML='';
+  if(!list.length){g.innerHTML='<div class="empty">아직 사진이 없습니다</div>';return}
+  list.forEach(function(s,i){
+    var d=document.createElement('div');d.className='cell';
+    var im=document.createElement('img'),u=URL.createObjectURL(s.thumb);gurls.push(u);im.src=u;
+    var l=document.createElement('span');l.textContent=s.memo;
+    d.appendChild(im);d.appendChild(l);d.onclick=function(){openView(i)};g.appendChild(d);
+  });
+}
+function hideGal(){galOpen=false;$('#gal').hidden=true;revokeAll(gurls);gurls=[];refreshThumb()}
+
+function openView(i){
+  vidx=i;
+  if(!viewOpen){
+    viewOpen=true;$('#view').hidden=false;
+    try{history.pushState({o:'view'},'')}catch(e){}
+  }
+  showView();
+}
+function armDel(on){
+  clearTimeout(delTimer);delTimer=on?setTimeout(function(){armDel(false)},3000):0;
+  $('#vdel').textContent=on?'한 번 더 누르면 삭제':'삭제';
+}
+function showView(){
+  var list=shown(),s=list[vidx];
+  if(!s){back();return}
+  if(vurl)URL.revokeObjectURL(vurl);
+  vurl=URL.createObjectURL(s.blob);$('#vimg').src=vurl;
+  $('#vinfo').textContent=s.name+'  ('+(vidx+1)+'/'+list.length+')';
+  armDel(false);
+}
+function hideView(){
+  viewOpen=false;$('#view').hidden=true;$('#vimg').removeAttribute('src');
+  if(vurl){URL.revokeObjectURL(vurl);vurl=null}
+}
+function back(){
+  if(history.state&&history.state.o){history.back()}
+  else{if(viewOpen)hideView();else if(galOpen)hideGal()}
+}
+window.addEventListener('popstate',function(){if(viewOpen)hideView();else if(galOpen)hideGal()});
+
+$('#thumb').addEventListener('click',openGal);
+$('#gback').addEventListener('click',back);
+$('#vback').addEventListener('click',back);
+$('#vprev').addEventListener('click',function(){if(vidx>0){vidx--;showView()}});
+$('#vnext').addEventListener('click',function(){if(vidx<shown().length-1){vidx++;showView()}});
+$('#vsave').addEventListener('click',function(){
+  var s=shown()[vidx];if(!s)return;
+  var a=document.createElement('a'),u=URL.createObjectURL(s.blob);
+  a.href=u;a.download=s.name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u)},15000);toast('다시 저장: '+s.name);
+});
+$('#vdel').addEventListener('click',function(){
+  if(!delTimer){armDel(true);return}
+  armDel(false);
+  var s=shown()[vidx];if(!s)return;
+  delShot(s.id).then(function(){
+    shots=shots.filter(function(x){return x.id!==s.id});
+    var n=shown().length;renderGal();
+    if(!n){back();return}
+    if(vidx>=n)vidx=n-1;
+    showView();toast('앱 목록에서 삭제했습니다');
+  }).catch(function(){toast('삭제 실패')});
+});
+(function(){
+  var x0=null,im=$('#vimg');
+  im.addEventListener('touchstart',function(e){x0=e.touches.length===1?e.touches[0].clientX:null},{passive:true});
+  im.addEventListener('touchend',function(e){
+    if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;x0=null;
+    if(dx>60)$('#vprev').click();else if(dx<-60)$('#vnext').click();
+  },{passive:true});
+})();
+refreshThumb();
 
 memoEl.value=store.get('last','');
 renderChips();updateCnt();startCamera();
