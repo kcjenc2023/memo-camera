@@ -315,8 +315,53 @@ async function grab(){
 }
 
 /* 비율 자르기 · 크기 줄이기 · 메모 새기기 (o: ratio, long, stamp, q) */
+/* JPEG 머리말에서 가로·세로·회전값만 읽기 (사진 전체를 열지 않고 크기 알아내기) */
+async function jpegInfo(blob){
+  try{
+    var b=new Uint8Array(await blob.slice(0,262144).arrayBuffer()),n=b.length;
+    if(b[0]!==0xFF||b[1]!==0xD8)return null;
+    var i=2,ori=1;
+    while(i<n-9){
+      if(b[i]!==0xFF){i++;continue}
+      var m=b[i+1];
+      if(m===0xFF){i++;continue}
+      if(m===0xD8||m===0x01||(m>=0xD0&&m<=0xD7)){i+=2;continue}
+      var len=(b[i+2]<<8)|b[i+3];
+      if(m===0xE1&&b[i+4]===0x45&&b[i+5]===0x78){
+        var t=i+10,le=b[t]===0x49;
+        var r16=function(p){return le?(b[p]|(b[p+1]<<8)):((b[p]<<8)|b[p+1])};
+        var r32=function(p){return le?(b[p]|(b[p+1]<<8)|(b[p+2]<<16)|(b[p+3]<<24)):((b[p]<<24)|(b[p+1]<<16)|(b[p+2]<<8)|b[p+3])};
+        var ifd=t+r32(t+4);
+        if(ifd>0&&ifd+2<n){
+          var cnt=r16(ifd);
+          for(var k=0;k<cnt&&ifd+2+k*12+10<n;k++){var e=ifd+2+k*12;if(r16(e)===0x0112){ori=r16(e+8);break}}
+        }
+      }
+      if(m>=0xC0&&m<=0xCF&&m!==0xC4&&m!==0xC8&&m!==0xCC){
+        var h=(b[i+5]<<8)|b[i+6],w=(b[i+7]<<8)|b[i+8];
+        return w&&h?{w:w,h:h,o:ori}:null;
+      }
+      i+=2+len;
+    }
+  }catch(e){}
+  return null;
+}
 async function render(blob,memo,o){
-  var bmp=await createImageBitmap(blob);
+  var T0=performance.now(),tm=o.tm||{},bmp=null;
+  /* 원본이 목표 크기보다 크면 열면서 바로 줄여서 연다 (큰 사진을 통째로 풀지 않음) */
+  if(o.long){
+    var ji=await jpegInfo(blob);
+    if(ji){
+      tm.src=ji.w+'×'+ji.h;
+      var L0=Math.max(ji.w,ji.h);
+      if(L0>o.long*1.05){
+        var W0=ji.o>=5?ji.h:ji.w,kk=o.long/L0;
+        try{bmp=await createImageBitmap(blob,{resizeWidth:Math.max(1,Math.round(W0*kk)),resizeQuality:'medium'})}catch(e){bmp=null}
+      }
+    }
+  }
+  if(!bmp)bmp=await createImageBitmap(blob);
+  var T1=performance.now();
   var sw=bmp.width,sh=bmp.height,sx=0,sy=0;
   if(o.ratio){
     var r=sw>sh?1/o.ratio:o.ratio,cur=sw/sh;
@@ -342,11 +387,14 @@ async function render(blob,memo,o){
       if(i>0){var nf=o.lines[i-1].big?bigFs:smFs;y-=Math.round(nf*0.95+fs*0.25)}
     }
   }
+  var T2=performance.now();
   if(o.out){
     o.out.th=scaledBlob(c,360,0.7).catch(function(){return null});
     if(o.med&&Math.max(cw,ch)>1700)o.out.med=scaledBlob(c,1600,0.85).catch(function(){return null});
   }
-  return canvasBlob(c,o.q);
+  var rb=await canvasBlob(c,o.q);
+  tm.dec=T1-T0;tm.draw=T2-T1;tm.enc=performance.now()-T2;tm.out=cw+'×'+ch;
+  return rb;
 }
 function scaledBlob(c,L,q){
   var k=Math.min(1,L/Math.max(c.width,c.height));
@@ -371,11 +419,11 @@ async function finalize(blob,memo,native,lines,snap){
   if(native){
     /* 기본 카메라 앱 사진은 크기·비율을 그대로 두고 글씨만 새김 */
     if(!stamp)return blob;
-    try{return await render(blob,memo,{lines:lines,q:snap.q,out:snap.out,med:snap.med})}
+    try{return await render(blob,memo,{lines:lines,q:snap.q,out:snap.out,med:snap.med,tm:snap.tm})}
     catch(e){toast('사진이 너무 커서 글씨를 새기지 못했습니다 (원본 저장)',2600);return blob}
   }
   if(!stamp&&snap.r34&&!snap.want)return blob;
-  return render(blob,memo,{ratio:snap.ratio,long:snap.want,lines:lines,q:snap.q,out:snap.out,med:snap.med});
+  return render(blob,memo,{ratio:snap.ratio,long:snap.want,lines:lines,q:snap.q,out:snap.out,med:snap.med,tm:snap.tm});
 }
 
 /* 같은 메모·같은 날 촬영: 메모_날짜.jpg → 메모_날짜-1.jpg → 메모_날짜-2.jpg … (덮어쓰지 않음) */
@@ -459,7 +507,7 @@ function pump(){
 async function runJob(job){
   var memo=job.memo,info=job.info,blob=job.blob,name=job.r.name,saved=false;
   var tS=performance.now(),out={};
-  job.snap.out=out;job.snap.med=!!NATP;
+  job.snap.out=out;job.snap.med=!!NATP;var TM=job.snap.tm={};
   try{
     try{blob=await finalize(blob,memo,job.native,job.lines,job.snap)}catch(e){toast('사진 변환 실패 (원본 저장)',2000);blob=job.blob;out={}}
     var tC=performance.now();
@@ -475,7 +523,7 @@ async function runJob(job){
     var tD=performance.now();
     if(saved){
       var f=function(x){return (x/1000).toFixed(1)};
-      toast('저장 '+(info.proj||(NATP?'현장사진':''))+(info.proj||NATP?'/':'')+name+'\n촬영 '+f(job.tCap)+' · 대기 '+f(tS-job.tEnq)+' · 변환 '+f(tC-tS)+' · 폰저장 '+f(tD-tC)+'초',3500);
+      toast('저장 '+(info.proj||(NATP?'현장사진':''))+(info.proj||NATP?'/':'')+name+'\n촬영 '+f(job.tCap)+' · 대기 '+f(tS-job.tEnq)+' · 변환 '+f(tC-tS)+' · 폰저장 '+f(tD-tC)+'초'+(TM.dec!=null?'\n(열기 '+f(TM.dec)+' · 그리기 '+f(TM.draw)+' · 압축 '+f(TM.enc)+') '+(TM.src||'')+(TM.src?' → ':'')+TM.out:''),5000);
     }
   }catch(e){
     unbump(memo,job.date);
@@ -1031,7 +1079,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v21 · 2026-11-16';
+var VER='v22 · 2026-11-16';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
