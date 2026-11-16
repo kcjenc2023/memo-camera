@@ -125,14 +125,14 @@ html.nc video{display:none}
       <div class="fld"><label>조사자</label><input id="s-by" type="text" placeholder="예: 김철준" autocomplete="off" spellcheck="false"><small>입력해 두면 모든 사진에 기록되고, "사진에 표기: 조사자"를 체크했을 때만 사진 위에 들어갑니다.</small></div>
       <div class="fld"><label>촬영 일시</label><input id="s-dt" type="datetime-local"><button class="btn" id="s-dtclear" style="margin-top:8px;min-height:40px;font-size:14px;padding:8px 12px">자동(촬영하는 순간의 시각)으로 되돌리기</button><small>비워 두면 촬영하는 순간의 날짜·시각이 자동으로 기록됩니다. 직접 입력하면 그 값이 계속 쓰이니, 끝나면 위 버튼으로 자동으로 되돌리세요. 촬영 화면의 "일시"는 직접 입력 중일 때 "일시(직접입력)"으로 바뀝니다.</small></div>
       <div class="fld"><label>사진 비율</label><select id="s-ratio"><option value="34">4:3</option><option value="916">16:9</option><option value="11">1:1</option><option value="full">FULL (화면 꽉 차게)</option></select><small>세로로 들고 찍는 기준이며 삼성 카메라의 비율과 같습니다. 미리보기 화면도 이 비율로 바뀝니다. 촬영 화면 아래쪽 "비율" 버튼으로도 바꿀 수 있습니다.</small></div>
-      <div class="fld"><label>카메라 엔진</label><select id="s-eng"><option value="">자동 (안드로이드 카메라: 실제 0.5x·3x·5x 렌즈, 빠른 저장)</option><option value="web">웹 카메라 (문제가 있을 때만)</option></select><small id="s-enginfo"></small></div>
-      <div class="fld"><label>촬영 방식</label><select id="s-fast"><option value="0">고화질 사진 촬영 (기본)</option><option value="1">빠른 촬영 (미리보기 화면 캡처)</option></select><small id="s-fastinfo"></small></div>
+      <div class="fld"><label>카메라 엔진</label><select id="s-eng"><option value="">자동 (안드로이드 카메라: 실제 렌즈 전환, 빠른 저장)</option><option value="web">웹 카메라 (문제가 있을 때만)</option></select><small id="s-enginfo"></small></div>
+      <div class="fld" id="f-fast"><label>촬영 방식</label><select id="s-fast"><option value="0">고화질 사진 촬영 (기본)</option><option value="1">빠른 촬영 (미리보기 화면 캡처)</option></select><small id="s-fastinfo"></small></div>
       <div class="fld"><label>사진 화질/용량</label><select id="s-qp"><option value="max">최고화질 (카메라 최대 크기 · 약 5~10MB)</option><option value="hi">고화질 (긴 변 4000px · 약 2~4MB)</option><option value="mid">일반화질 (긴 변 3200px · 약 1MB, 빠름)</option><option value="low">저용량 (긴 변 1600px · 약 0.3MB, 가장 빠름)</option><option value="custom">직접 설정 (아래 해상도·JPG 화질)</option></select><small>크기를 줄일수록 저장이 빨라집니다. 보고서용은 "고화질"을 권장합니다. 용량은 장면에 따라 달라지는 대략 값입니다. 촬영 화면 아래쪽 "화질" 버튼으로도 바꿀 수 있습니다.</small></div>
       <div class="fld"><label>흔들림 자동 보정</label><select id="s-stab"><option value="0">끔</option><option value="1">자동 (손 떨림이 멎을 때까지 잠깐 기다렸다 촬영)</option><option value="2">강력 (3장 연속 촬영 후 가장 선명한 1장 저장)</option></select><small>폰 움직임 센서로 흔들림을 감지합니다. "자동"은 최대 0.7초, "강력"은 약 1.5~2초 더 걸릴 수 있습니다. 어두운 곳이나 흔들림이 걱정될 때만 "강력"을 쓰세요.</small></div>
-      <div class="fld"><label>해상도(사이즈)</label><select id="s-res"></select><small id="s-resinfo"></small></div>
-      <div class="fld"><label>JPG 화질</label><select id="s-q"><option value="0.95">높음</option><option value="0.9">표준</option><option value="0.8">작은 파일</option><option value="0.7">더 작은 파일</option></select><small>비율을 바꾸거나 크기를 줄이거나 메모를 새길 때 적용됩니다.</small></div>
-      <div class="fld"><label>카메라(렌즈)</label><select id="s-cam"></select><small>초광각 같은 렌즈가 목록에 있으면 선택해서 건물 전체를 담을 수 있습니다. 목록에 없으면 이 브라우저가 해당 렌즈를 열어 주지 않는 것입니다. 촬영 화면에서 화면 아래 확대 버튼(1x, 2x…)이나 두 손가락으로 벌려서 확대합니다.</small></div>
-      <div class="fld"><label>확대 버튼에 렌즈 연결</label>
+      <div class="fld" id="f-res"><label>해상도(사이즈)</label><select id="s-res"></select><small id="s-resinfo"></small></div>
+      <div class="fld" id="f-q"><label>JPG 화질</label><select id="s-q"><option value="0.95">높음</option><option value="0.9">표준</option><option value="0.8">작은 파일</option><option value="0.7">더 작은 파일</option></select><small>비율을 바꾸거나 크기를 줄이거나 메모를 새길 때 적용됩니다.</small></div>
+      <div class="fld" id="f-cam"><label>카메라(렌즈)</label><select id="s-cam"></select><small>초광각 같은 렌즈가 목록에 있으면 선택해서 건물 전체를 담을 수 있습니다. 목록에 없으면 이 브라우저가 해당 렌즈를 열어 주지 않는 것입니다. 촬영 화면에서 화면 아래 확대 버튼(1x, 2x…)이나 두 손가락으로 벌려서 확대합니다.</small></div>
+      <div class="fld" id="f-lens"><label>확대 버튼에 렌즈 연결</label>
         <div style="display:flex;flex-direction:column;gap:8px">
           <div><small style="display:block;margin:0 0 3px">0.5x 버튼 (초광각 렌즈)</small><select id="s-lw"></select></div>
           <div><small style="display:block;margin:0 0 3px">3x 버튼 (망원 렌즈)</small><select id="s-l3"></select></div>
@@ -320,6 +320,11 @@ async function fillCams(){
     });
     renderZbar();
   }catch(e){}
+}
+function syncSetVis(){
+  var nat=!!ncOn,cu=(cfg.qp||'custom')==='custom';
+  var H=function(id,h){var e=$(id);if(e)e.hidden=h};
+  H('#f-fast',nat);H('#f-cam',nat);H('#f-lens',nat);H('#f-res',!cu);H('#f-q',!cu);
 }
 var wl=null;
 async function keepAwake(){
@@ -704,6 +709,7 @@ function renderZbar(){
   var zb=$('#zbar');if(!zb)return;
   zb.innerHTML='';
   var r=zoomRange(),vals=[0.5,1,2,3,5];
+  if(ncOn&&r.min<0.95)vals[0]=Math.round(r.min*10)/10;
   var lensChips={};
   if(cfg.lw)lensChips[0.5]='lw';if(cfg.l3)lensChips[3]='l3';if(cfg.l5)lensChips[5]='l5';
   var near=vals.reduce(function(a,b){return Math.abs(b-zoomLv)<Math.abs(a-zoomLv)?b:a});
@@ -711,7 +717,7 @@ function renderZbar(){
     var b=document.createElement('button');
     var lk=ncOn?null:lensChips[v],on=lk?(curLens===lk):(curLens===''&&Math.abs(zoomLv-v)<0.05);
     b.textContent=v+'x';if(on)b.className='on';
-    b.onclick=function(){if(ncOn){if(v<zoomRange().min-0.01){toast('이 폰의 안드로이드 카메라에서는 '+v+'x 렌즈를 열 수 없습니다',2200)}else setZoom(v)}else if(lk)switchLens(lk,v);else if(v<1){toast('0.5x는 초광각 렌즈를 연결해야 합니다.\n설정 → 확대 버튼에 렌즈 연결',2600);openSet()}else switchLens('',v)};
+    b.onclick=function(){if(ncOn){if(v<zoomRange().min-0.01){toast('이 폰에서는 '+v+'x를 쓸 수 없습니다',1800)}else setZoom(Math.max(v,zoomRange().min))}else if(lk)switchLens(lk,v);else if(v<1){toast('0.5x는 초광각 렌즈를 연결해야 합니다.\n설정 → 확대 버튼에 렌즈 연결',2600);openSet()}else switchLens('',v)};
     zb.appendChild(b);
   });
   if(curLens===''&&!vals.some(function(v){return Math.abs(zoomLv-v)<0.05})){
@@ -1169,7 +1175,7 @@ var setOpen=false;
 function fillSetValues(){
   $('#s-fast').value=cfg.fast?'1':'0';refreshFastInfo();
   $('#s-proj').value=cfg.proj||'';$('#s-by').value=cfg.by||'';$('#s-dt').value=cfg.dt||'';
-  $('#s-ratio').value=cfg.ratio;fillRes();fillCams();refreshDirUI();$('#s-q').value=String(cfg.q);$('#s-qp').value=cfg.qp||'custom';$('#s-eng').value=cfg.eng||'';$('#s-stab').value=String(cfg.stab||'0');
+  $('#s-ratio').value=cfg.ratio;fillRes();fillCams();refreshDirUI();$('#s-q').value=String(cfg.q);$('#s-qp').value=cfg.qp||'custom';$('#s-eng').value=cfg.eng||'';syncSetVis();$('#s-stab').value=String(cfg.stab||'0');
 }
 function openSet(){
   fillSetValues();
@@ -1184,7 +1190,7 @@ $('#s-by').addEventListener('input',function(){cfg.by=clean(this.value);saveCfg(
 $('#s-dt').addEventListener('change',function(){cfg.dt=this.value||'';saveCfg();refreshDtLabel()});
 $('#s-dtclear').addEventListener('click',function(){cfg.dt='';$('#s-dt').value='';saveCfg();refreshDtLabel();toast('촬영 일시: 자동')});
 $('#s-ratio').addEventListener('change',function(){cfg.ratio=this.value;saveCfg();applyRatio();ncSyncRect();renderZbar()});
-$('#s-qp').addEventListener('change',function(){if(this.value==='custom'){cfg.qp='custom';saveCfg();renderZbar()}else applyQp(this.value)});
+$('#s-qp').addEventListener('change',function(){if(this.value==='custom'){cfg.qp='custom';saveCfg();renderZbar()}else applyQp(this.value);syncSetVis()});
 $('#s-stab').addEventListener('change',function(){cfg.stab=this.value;saveCfg();toast(this.value==='0'?'흔들림 보정: 끔':this.value==='1'?'흔들림 보정: 자동':'흔들림 보정: 강력',1200)});
 $('#s-res').addEventListener('change',function(){cfg.res=this.value;cfg.qp='custom';$('#s-qp').value='custom';saveCfg();renderZbar();if(ncOn)startCamera()});
 $('#s-q').addEventListener('change',function(){cfg.q=parseFloat(this.value);cfg.qp='custom';$('#s-qp').value='custom';saveCfg();renderZbar()});
@@ -1202,7 +1208,7 @@ $('#s-cfgsave').addEventListener('click',function(){
   var id={lw:'#s-lw',l3:'#s-l3',l5:'#s-l5'}[k];
   $(id).addEventListener('change',function(){cfg[k]=this.value;saveCfg();renderZbar();if(curLens===k){lensOverride=this.value||null;if(!this.value)curLens='';startCamera()}});
 });
-$('#s-eng').addEventListener('change',function(){cfg.eng=this.value;saveCfg();ncFail=false;startCamera()});
+$('#s-eng').addEventListener('change',function(){cfg.eng=this.value;saveCfg();ncFail=false;startCamera();setTimeout(syncSetVis,600)});
 $('#s-fast').addEventListener('change',function(){cfg.fast=this.value==='1';saveCfg();startCamera();setTimeout(refreshFastInfo,1200)});
 function refreshFastInfo(){
   var el=$('#s-fastinfo');if(!el)return;
@@ -1333,7 +1339,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v27 · 2026-11-17';
+var VER='v28 · 2026-11-17';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
