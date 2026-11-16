@@ -37,6 +37,13 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 #nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
 #nocam .btn{background:#ffd54a;color:#000}
 #thumb{cursor:pointer}
+#vwrap{position:absolute;overflow:hidden;background:#111}
+#set{position:absolute;inset:0;z-index:8;background:#0b0b0b;display:flex;flex-direction:column}
+.sbody{flex:1;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
+.fld{padding:10px 14px}
+.fld label{display:block;font-size:13px;color:#bbb;margin-bottom:6px}
+.fld input,.fld select{width:100%;font-size:17px;padding:12px;border-radius:10px;border:1px solid #ffffff44;background:#1a1a1a;color:#fff}
+.fld small{display:block;color:#888;font-size:12px;margin-top:6px;line-height:1.45}
 .gtools{display:flex;gap:8px;align-items:center;padding:0 12px 8px;flex-wrap:wrap}
 .gtools .btn{min-height:40px;font-size:14px;padding:8px 12px}
 #gstat{font-size:12px;color:#aaa;flex-basis:100%}
@@ -53,13 +60,13 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 .cell span{position:absolute;left:0;right:0;bottom:0;font-size:11px;padding:10px 5px 3px;background:linear-gradient(#0000,#000b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{grid-column:1/-1;text-align:center;color:#888;padding:60px 0}
 #vimg{flex:1;min-height:0;width:100%;object-fit:contain}
-#vinfo{flex:1;font-size:13px;color:#ccc;word-break:break-all}
+#vinfo{flex:1;font-size:13px;color:#ccc;word-break:break-all;white-space:pre-line}
 .vbar{display:flex;gap:8px;justify-content:center;padding:10px 10px calc(env(safe-area-inset-bottom) + 12px);flex-wrap:wrap}
 </style>
 </head>
 <body>
 <div id="app">
-  <video id="vid" playsinline muted autoplay></video>
+  <div id="vwrap"><video id="vid" playsinline muted autoplay></video></div>
   <div id="nocam" hidden>
     <div id="err" style="font-size:17px;font-weight:600">기본 카메라 앱으로 촬영합니다</div>
     <div style="color:#bbb;font-size:14px">메모 입력 → 아래 셔터(또는 키보드 Enter) →<br>카메라에서 촬영 후 확인 → 메모가 붙은 파일로 자동 저장</div>
@@ -71,15 +78,22 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
     <div class="row">
       <input id="memo" type="text" placeholder="메모 (예: 현장1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button class="btn" id="plus" title="끝 숫자 +1">+1</button>
+      <button class="btn" id="gear" title="설정">⚙</button>
     </div>
     <div id="chips"></div>
   </div>
 
   <div class="bottom">
     <div class="opts">
-      <label><input type="checkbox" id="autosel" checked>촬영 후 메모 바로 수정</label>
-      <label><input type="checkbox" id="stamp" checked>사진에 메모 새기기</label>
+      <label><input type="checkbox" id="autosel">촬영 후 메모 바로 수정</label>
       <label><input type="checkbox" id="keepdl">폰에 바로 저장(알림 뜸)</label>
+    </div>
+    <div class="opts" style="gap:12px;margin-top:-2px">
+      <span>사진에 표기:</span>
+      <label><input type="checkbox" id="st-memo">메모</label>
+      <label><input type="checkbox" id="st-proj">사업명</label>
+      <label><input type="checkbox" id="st-date"><span id="st-datel">일시</span></label>
+      <label><input type="checkbox" id="st-by">촬영자</label>
     </div>
     <div class="shutrow">
       <div class="side"><img id="thumb" alt="" hidden></div>
@@ -90,6 +104,18 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 
   <div id="flash"></div>
   <div id="toast"></div>
+  <div id="set" hidden>
+    <div class="ghead"><button class="btn" id="sback">← 닫기</button><b>설정</b></div>
+    <div class="sbody">
+      <div class="fld"><label>사업명 (폴더 이름으로도 사용)</label><input id="s-proj" type="text" placeholder="예: ㅇㅇ착공후 지하안전조사" autocomplete="off" spellcheck="false"><small>입력해 두면 모든 사진에 기록됩니다. 촬영 화면의 "사진에 표기: 사업명"을 체크했을 때만 사진 위에 글씨로 들어갑니다. ZIP으로 내보낼 때는 ZIP 파일명과 ZIP 안의 폴더 이름으로도 쓰입니다. (크롬은 저장 폴더를 직접 고를 수 없습니다.)</small></div>
+      <div class="fld"><label>촬영자</label><input id="s-by" type="text" placeholder="예: 김철준" autocomplete="off" spellcheck="false"><small>입력해 두면 모든 사진에 기록되고, "사진에 표기: 촬영자"를 체크했을 때만 사진 위에 들어갑니다.</small></div>
+      <div class="fld"><label>촬영 일시</label><input id="s-dt" type="datetime-local"><button class="btn" id="s-dtclear" style="margin-top:8px;min-height:40px;font-size:14px;padding:8px 12px">자동(촬영하는 순간의 시각)으로 되돌리기</button><small>비워 두면 촬영하는 순간의 날짜·시각이 자동으로 기록됩니다. 직접 입력하면 그 값이 계속 쓰이니, 끝나면 위 버튼으로 자동으로 되돌리세요. 촬영 화면의 "일시"는 직접 입력 중일 때 "일시(직접입력)"으로 바뀝니다.</small></div>
+      <div class="fld"><label>사진 비율</label><select id="s-ratio"><option value="34">3:4</option><option value="916">9:16</option><option value="11">1:1</option><option value="full">FULL (화면 꽉 차게)</option></select><small>미리보기 화면도 이 비율로 바뀝니다. 삼성 카메라의 비율 설정과 같은 종류입니다.</small></div>
+      <div class="fld"><label>해상도(사이즈)</label><select id="s-res"></select><small id="s-resinfo"></small></div>
+      <div class="fld"><label>JPG 화질</label><select id="s-q"><option value="0.95">높음</option><option value="0.9">표준</option><option value="0.8">작은 파일</option></select><small>비율을 바꾸거나 크기를 줄이거나 메모를 새길 때 적용됩니다.</small></div>
+      <div class="fld"><button class="btn" id="s-native" style="width:100%">삼성 기본 카메라 앱으로 촬영</button><small>삼성 카메라 앱의 해상도·비율 설정(50MP, 200MP 등)을 그대로 따릅니다. 메모 새기기 외에는 사진을 손대지 않습니다.</small></div>
+    </div>
+  </div>
   <div id="gal" hidden>
     <div class="ghead"><button class="btn" id="gback">← 닫기</button><b id="gtitle">촬영 사진</b></div>
     <div class="gtools"><button class="btn" id="gexport">ZIP으로 내보내기</button><button class="btn" id="gclear">이 목록 비우기</button><div id="gstat"></div></div>
@@ -129,8 +155,25 @@ function clean(s){return String(s||'').replace(/[\\\/:*?"<>|\r\n\t]/g,'').replac
 function toast(m,ms){var t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.opacity=0},ms||1400)}
 
 /* 키보드가 올라와도 셔터가 보이도록 화면 크기 맞춤 */
-function fit(){var vv=window.visualViewport;if(!vv)return;app.style.height=vv.height+'px';app.style.top=vv.offsetTop+'px'}
-if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit);fit()}
+var cfg=store.get('cfg',{proj:'',ratio:'34',res:'max',q:0.9});
+function saveCfg(){store.set('cfg',cfg)}
+var RATIOS={'34':3/4,'916':9/16,'11':1};
+function ratioVal(){
+  if(cfg.ratio==='full'){var a=Math.min(screen.width,screen.height),b=Math.max(screen.width,screen.height);return a/b}
+  return RATIOS[cfg.ratio]||0.75;
+}
+/* 미리보기 화면을 선택한 사진 비율로 맞춤 */
+function applyRatio(){
+  var w=app.clientWidth,h=app.clientHeight,s=$('#vwrap').style;
+  if(cfg.ratio==='full'){s.left='0px';s.top='0px';s.width=w+'px';s.height=h+'px';return}
+  var r=RATIOS[cfg.ratio]||0.75,bw=w,bh=w/r;
+  if(bh>h){bh=h;bw=h*r}
+  s.width=bw+'px';s.height=bh+'px';s.left=(w-bw)/2+'px';s.top=(h-bh)/2+'px';
+}
+function fit(){var vv=window.visualViewport;if(vv){app.style.height=vv.height+'px';app.style.top=vv.offsetTop+'px'}applyRatio()}
+if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit)}
+window.addEventListener('resize',fit);
+fit();
 
 /* 최근 메모 */
 var recent=store.get('recent',[]);
@@ -168,6 +211,7 @@ async function startCamera(){
     imgCap=('ImageCapture' in window)?new ImageCapture(track):null;
     live=true;
     $('#nocam').hidden=true;
+    loadCaps();
   }catch(e){
     live=false;
     $('#nocam').hidden=false;
@@ -175,11 +219,37 @@ async function startCamera(){
 }
 function canvasBlob(c,q){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('변환 실패'))},'image/jpeg',q||0.95)})}
 
+/* 이 폰의 크롬이 허용하는 최대 사진 크기 */
+var capMax=null;
+async function loadCaps(){
+  capMax=null;
+  try{
+    if(imgCap){
+      var c=await imgCap.getPhotoCapabilities();
+      if(c.imageWidth&&c.imageHeight)capMax={w:c.imageWidth.max,h:c.imageHeight.max};
+    }
+  }catch(e){}
+  fillRes();
+}
+function fillRes(){
+  var sel=$('#s-res'),maxLong=capMax?Math.max(capMax.w,capMax.h):4000,opts=[];
+  opts.push(['max',capMax?('최대 ('+capMax.w+'×'+capMax.h+', 약 '+Math.round(capMax.w*capMax.h/1e6)+'MP)'):'최대 (브라우저 기본)']);
+  [[4000,'큰 사이즈 (긴 변 4000px, 약 12MP)'],[3200,'보통 (긴 변 3200px, 약 8MP)'],[2400,'작게 (긴 변 2400px, 약 4MP)'],[1600,'아주 작게 (긴 변 1600px, 약 2MP)']].forEach(function(p){if(p[0]<maxLong)opts.push([String(p[0]),p[1]])});
+  sel.innerHTML='';
+  opts.forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];sel.appendChild(op)});
+  sel.value=opts.some(function(o){return o[0]===String(cfg.res)})?String(cfg.res):'max';
+  $('#s-resinfo').textContent=capMax?('이 폰의 크롬이 허용하는 최대 크기: '+capMax.w+'×'+capMax.h+'. 더 큰 사진(50MP, 200MP)은 아래 "삼성 기본 카메라 앱으로 촬영"을 쓰세요.'):'최대 크기를 확인하지 못했습니다.';
+}
+
 async function grab(){
   if(imgCap){
     try{
-      var opt={};
-      try{var caps=await imgCap.getPhotoCapabilities();if(caps.imageWidth&&caps.imageHeight){opt={imageWidth:caps.imageWidth.max,imageHeight:caps.imageHeight.max}}}catch(e){}
+      var opt={},want=cfg.res==='max'?0:parseInt(cfg.res,10);
+      if(capMax){
+        var W=capMax.w,H=capMax.h;
+        if(want){var k=want/Math.max(W,H);if(k<1){W=Math.round(W*k);H=Math.round(H*k)}}
+        opt={imageWidth:W,imageHeight:H};
+      }
       return await imgCap.takePhoto(opt);
     }catch(e){
       try{return await imgCap.takePhoto()}catch(e2){}
@@ -190,17 +260,59 @@ async function grab(){
   return canvasBlob(c);
 }
 
-async function stampBlob(blob,memo){
+/* 비율 자르기 · 크기 줄이기 · 메모 새기기 (o: ratio, long, stamp, q) */
+async function render(blob,memo,o){
   var bmp=await createImageBitmap(blob);
-  var c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;
-  var x=c.getContext('2d');x.drawImage(bmp,0,0);
-  var base=Math.min(c.width,c.height),fs=Math.round(base*0.052);
-  x.font='700 '+fs+'px system-ui,"Noto Sans KR",sans-serif';
-  x.textBaseline='alphabetic';
-  var px=Math.round(base*0.055),py=c.height-Math.round(base*0.03);
-  x.shadowColor='rgba(0,0,0,0.6)';x.shadowBlur=Math.round(fs*0.12);x.shadowOffsetX=Math.round(fs*0.04);x.shadowOffsetY=Math.round(fs*0.04);
-  x.fillStyle='#ff9f1a';x.fillText(memo,px,py);
-  return canvasBlob(c);
+  var sw=bmp.width,sh=bmp.height,sx=0,sy=0;
+  if(o.ratio){
+    var r=sw>sh?1/o.ratio:o.ratio,cur=sw/sh;
+    if(cur>r+0.01){var nw=Math.round(sh*r);sx=Math.round((sw-nw)/2);sw=nw}
+    else if(cur<r-0.01){var nh=Math.round(sw/r);sy=Math.round((sh-nh)/2);sh=nh}
+  }
+  var k=1;if(o.long&&Math.max(sw,sh)>o.long)k=o.long/Math.max(sw,sh);
+  var cw=Math.round(sw*k),ch=Math.round(sh*k);
+  var c=document.createElement('canvas');c.width=cw;c.height=ch;
+  var x=c.getContext('2d');x.drawImage(bmp,sx,sy,sw,sh,0,0,cw,ch);
+  if(bmp.close)bmp.close();
+  if(o.lines&&o.lines.length){
+    var base=Math.min(cw,ch),bigFs=Math.round(base*0.052),smFs=Math.round(base*0.032);
+    var px=Math.round(base*0.055),maxW=cw-px*2,y=ch-Math.round(base*0.03);
+    x.textBaseline='alphabetic';x.fillStyle='#ff9f1a';
+    for(var i=o.lines.length-1;i>=0;i--){
+      var ln=o.lines[i],fs=ln.big?bigFs:smFs;
+      x.font='700 '+fs+'px system-ui,"Noto Sans KR",sans-serif';
+      var tw=x.measureText(ln.t).width;
+      if(tw>maxW){fs=Math.max(8,Math.floor(fs*maxW/tw));x.font='700 '+fs+'px system-ui,"Noto Sans KR",sans-serif'}
+      x.shadowColor='rgba(0,0,0,0.6)';x.shadowBlur=Math.round(fs*0.12);x.shadowOffsetX=Math.round(fs*0.04);x.shadowOffsetY=Math.round(fs*0.04);
+      x.fillText(ln.t,px,y);
+      if(i>0){var nf=o.lines[i-1].big?bigFs:smFs;y-=Math.round(nf*0.95+fs*0.25)}
+    }
+  }
+  return canvasBlob(c,o.q);
+}
+/* 사진에 표기할 항목 (체크한 것만 글씨로 들어가고, 나머지는 값만 기록됨) */
+var stamps=store.get('stamps',{memo:store.get('stamp',true),proj:false,date:false,by:false});
+function takenDate(){if(cfg.dt){var d=new Date(cfg.dt);if(!isNaN(d.getTime()))return d}return new Date()}
+function fmtDT(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())}
+function stampLines(memo,info){
+  var L=[];
+  if(stamps.memo)L.push({t:memo,big:true});
+  if(stamps.proj&&info.proj)L.push({t:info.proj});
+  if(stamps.date&&info.taken)L.push({t:info.taken});
+  if(stamps.by&&info.by)L.push({t:'촬영자 '+info.by});
+  return L;
+}
+async function finalize(blob,memo,native,lines){
+  var stamp=lines.length>0;
+  if(native){
+    /* 기본 카메라 앱 사진은 크기·비율을 그대로 두고 글씨만 새김 */
+    if(!stamp)return blob;
+    try{return await render(blob,memo,{lines:lines,q:cfg.q})}
+    catch(e){toast('사진이 너무 커서 글씨를 새기지 못했습니다 (원본 저장)',2600);return blob}
+  }
+  var want=cfg.res==='max'?0:parseInt(cfg.res,10);
+  if(!stamp&&cfg.ratio==='34'&&!want)return blob;
+  return render(blob,memo,{ratio:ratioVal(),long:want,lines:lines,q:cfg.q});
 }
 
 function fileName(memo){
@@ -218,14 +330,15 @@ function save(blob,name,skipDl){
   lastThumb=URL.createObjectURL(blob);th.src=lastThumb;th.hidden=false;
 }
 
-async function process(blob){
+async function process(blob,native){
   var memo=clean(memoEl.value)||'사진';
   store.set('last',memoEl.value);
-  if($('#stamp').checked){try{blob=await stampBlob(blob,memo)}catch(e){}}
+  var info={proj:clean(cfg.proj),by:clean(cfg.by),taken:fmtDT(takenDate())};
+  try{blob=await finalize(blob,memo,native,stampLines(memo,info))}catch(e){toast('사진 변환 실패 (원본 저장)',2000)}
   var name=fileName(memo);
   var dl=$('#keepdl').checked;
   save(blob,name,!dl);bump(memo);pushRecent(memo);
-  addShot(blob,memo,name).then(refreshThumb).catch(function(){});
+  addShot(blob,memo,name,info).then(refreshThumb).catch(function(){});
   toast((dl?'저장: ':'앱에 보관: ')+name);
 }
 
@@ -256,7 +369,8 @@ $('#native').addEventListener('click',function(){natin.click()});
 natin.addEventListener('change',async function(){
   var f=natin.files&&natin.files[0];natin.value='';
   if(!f)return;
-  try{await process(f)}catch(e){toast('저장 실패',2000)}
+  try{await process(f,true)}catch(e){toast('저장 실패',2000)}
+  if(setOpen)back();
   if($('#autosel').checked){memoEl.focus();memoEl.select()}
 });
 document.addEventListener('visibilitychange',function(){
@@ -314,15 +428,17 @@ function tx(mode,fn){
 }
 async function makeThumb(blob){
   try{
-    var bmp=await createImageBitmap(blob),k=Math.min(1,360/Math.max(bmp.width,bmp.height));
-    var c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
-    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);if(bmp.close)bmp.close();
+    /* 큰 사진도 메모를 적게 쓰도록 디코딩 단계에서 줄임 */
+    var bmp=await createImageBitmap(blob,{resizeWidth:360,resizeQuality:'medium'});
+    var c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;
+    c.getContext('2d').drawImage(bmp,0,0);if(bmp.close)bmp.close();
     return await canvasBlob(c,0.7);
   }catch(e){return null}
 }
-async function addShot(blob,memo,name){
+async function addShot(blob,memo,name,info){
   var th=await makeThumb(blob);
-  await tx('readwrite',function(s){return s.add({name:name,memo:memo,ts:Date.now(),blob:blob,thumb:th||blob})});
+  info=info||{};
+  await tx('readwrite',function(s){return s.add({name:name,memo:memo,proj:info.proj||'',by:info.by||'',taken:info.taken||'',ts:Date.now(),blob:blob,thumb:th||blob})});
 }
 function allShots(){return tx('readonly',function(s){return s.getAll()}).then(function(a){return (a||[]).reverse()})}
 function delShot(id){return tx('readwrite',function(s){return s.delete(id)})}
@@ -384,7 +500,8 @@ function showView(){
   if(!s){back();return}
   if(vurl)URL.revokeObjectURL(vurl);
   vurl=URL.createObjectURL(s.blob);$('#vimg').src=vurl;
-  $('#vinfo').textContent=s.name+'  ('+(vidx+1)+'/'+list.length+')';
+  var extra=[s.proj,s.taken,s.by?('촬영자 '+s.by):''].filter(Boolean).join(' · ');
+  $('#vinfo').textContent=s.name+'  ('+(vidx+1)+'/'+list.length+')'+(extra?'\n'+extra:'');
   armDel(false);
 }
 function hideView(){
@@ -393,9 +510,9 @@ function hideView(){
 }
 function back(){
   if(history.state&&history.state.o){history.back()}
-  else{if(viewOpen)hideView();else if(galOpen)hideGal()}
+  else{if(viewOpen)hideView();else if(galOpen)hideGal();else if(setOpen)hideSet()}
 }
-window.addEventListener('popstate',function(){if(viewOpen)hideView();else if(galOpen)hideGal()});
+window.addEventListener('popstate',function(){if(viewOpen)hideView();else if(galOpen)hideGal();else if(setOpen)hideSet()});
 
 $('#thumb').addEventListener('click',openGal);
 $('#gback').addEventListener('click',back);
@@ -406,8 +523,15 @@ $('#gexport').addEventListener('click',async function(){
   if(total>3.5e9){toast('용량이 너무 큽니다. 위쪽 메모 버튼으로 나눠서 내보내세요',3500);return}
   btn.disabled=true;toast('ZIP 만드는 중… ('+list.length+'장)',3000);
   try{
-    var z=await makeZip(list.slice().reverse());
-    var fn='현장사진_'+now().date+(gfilter?'_'+gfilter:'')+'.zip';
+    var P=clean(cfg.proj)||'현장사진';
+    var asc=list.slice().reverse();
+    var csv=function(v){v=String(v==null?'':v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    var rows=['﻿파일명,메모,사업명,촬영일시,촬영자'];
+    asc.forEach(function(s){rows.push([s.name,s.memo,s.proj||'',s.taken||fmtDT(new Date(s.ts)),s.by||''].map(csv).join(','))});
+    var items=asc.map(function(s){return{name:P+'/'+s.name,blob:s.blob,ts:s.ts}});
+    items.push({name:P+'/촬영목록.csv',blob:new Blob([rows.join('\r\n')],{type:'text/csv'}),ts:Date.now()});
+    var z=await makeZip(items);
+    var fn=P+'_'+now().date+(gfilter?'_'+gfilter:'')+'.zip';
     var a=document.createElement('a'),u=URL.createObjectURL(z);
     a.href=u;a.download=fn;document.body.appendChild(a);a.click();a.remove();
     setTimeout(function(){URL.revokeObjectURL(u)},60000);
@@ -465,8 +589,38 @@ $('#keepdl').addEventListener('change',function(){
   store.set('keepdl2',this.checked);
   toast(this.checked?'촬영할 때마다 폰에 저장됩니다 (상단에 다운로드 알림이 뜹니다)':'앱에만 보관합니다. 나중에 갤러리에서 ZIP으로 내보내세요',2800);
 });
-$('#stamp').checked=store.get('stamp',true);
-$('#stamp').addEventListener('change',function(){store.set('stamp',this.checked)});
+['memo','proj','date','by'].forEach(function(k){
+  var el=$('#st-'+k);el.checked=!!stamps[k];
+  el.addEventListener('change',function(){
+    stamps[k]=this.checked;store.set('stamps',stamps);
+    if(this.checked&&k==='proj'&&!clean(cfg.proj))toast('⚙ 설정에서 사업명을 입력하세요',2200);
+    if(this.checked&&k==='by'&&!clean(cfg.by))toast('⚙ 설정에서 촬영자 이름을 입력하세요',2200);
+  });
+});
+function refreshDtLabel(){$('#st-datel').textContent=cfg.dt?'일시(직접입력)':'일시'}
+refreshDtLabel();
+$('#autosel').checked=store.get('autosel',false);
+$('#autosel').addEventListener('change',function(){store.set('autosel',this.checked)});
+
+/* ===== 설정 화면 ===== */
+var setOpen=false;
+function openSet(){
+  $('#s-proj').value=cfg.proj||'';$('#s-by').value=cfg.by||'';$('#s-dt').value=cfg.dt||'';
+  $('#s-ratio').value=cfg.ratio;fillRes();$('#s-q').value=String(cfg.q);
+  $('#set').hidden=false;setOpen=true;
+  try{history.pushState({o:'set'},'')}catch(e){}
+}
+function hideSet(){setOpen=false;$('#set').hidden=true}
+$('#gear').addEventListener('click',openSet);
+$('#sback').addEventListener('click',back);
+$('#s-proj').addEventListener('input',function(){cfg.proj=clean(this.value);saveCfg()});
+$('#s-by').addEventListener('input',function(){cfg.by=clean(this.value);saveCfg()});
+$('#s-dt').addEventListener('change',function(){cfg.dt=this.value||'';saveCfg();refreshDtLabel()});
+$('#s-dtclear').addEventListener('click',function(){cfg.dt='';$('#s-dt').value='';saveCfg();refreshDtLabel();toast('촬영 일시: 자동')});
+$('#s-ratio').addEventListener('change',function(){cfg.ratio=this.value;saveCfg();applyRatio()});
+$('#s-res').addEventListener('change',function(){cfg.res=this.value;saveCfg()});
+$('#s-q').addEventListener('change',function(){cfg.q=parseFloat(this.value);saveCfg()});
+$('#s-native').addEventListener('click',function(){natin.click()});
 if('serviceWorker' in navigator){try{navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}}
 
 memoEl.value=store.get('last','');
