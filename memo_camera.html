@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>메모 카메라</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#000;color:#fff;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;overflow:hidden}
+#app{position:fixed;left:0;top:0;width:100%;height:100dvh;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#111}
+.top{position:absolute;left:0;right:0;top:0;z-index:2;padding:calc(env(safe-area-inset-top) + 10px) 12px 20px;background:linear-gradient(#000b,#0000)}
+.row{display:flex;gap:8px;align-items:center}
+#memo{flex:1;min-width:0;font-size:22px;font-weight:600;padding:12px 14px;border-radius:12px;border:2px solid #ffffff55;background:#000a;color:#fff;outline:none}
+#memo:focus{border-color:#ffd54a}
+.btn{border:0;border-radius:12px;background:#ffffff26;color:#fff;font-size:16px;font-weight:600;padding:12px 14px;min-height:48px}
+.btn:active{background:#ffffff55}
+#chips{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:0;border-radius:999px;background:#ffffff2e;color:#fff;font-size:15px;padding:7px 13px}
+.bottom{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:30px 14px calc(env(safe-area-inset-bottom) + 12px);background:linear-gradient(#0000,#000c)}
+.opts{display:flex;gap:16px;justify-content:center;font-size:13px;margin-bottom:10px;color:#ddd;flex-wrap:wrap}
+.opts label{display:flex;align-items:center;gap:5px}
+.shutrow{display:flex;align-items:center;justify-content:space-between}
+.side{width:84px;font-size:12px;color:#ddd;line-height:1.35}
+.side.r{text-align:right}
+#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#ffffff33;padding:0;position:relative}
+#shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
+#shutter:active::after{background:#ffd54a}
+#thumb{width:52px;height:52px;border-radius:10px;object-fit:cover;background:#222;border:2px solid #ffffff66}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;transition:opacity .25s}
+#toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);z-index:4;background:#000c;padding:10px 16px;border-radius:10px;font-size:15px;max-width:86%;text-align:center;pointer-events:none;opacity:0;transition:opacity .2s}
+#nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
+#nocam .btn{background:#ffd54a;color:#000}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="vid" playsinline muted autoplay></video>
+  <div id="nocam" hidden>
+    <div id="err" style="font-size:17px;font-weight:600">기본 카메라 앱으로 촬영합니다</div>
+    <div style="color:#bbb;font-size:14px">메모 입력 → 아래 셔터(또는 키보드 Enter) →<br>카메라에서 촬영 후 확인 → 메모가 붙은 파일로 자동 저장</div>
+    <button class="btn" id="native">지금 촬영</button>
+    <button class="btn" id="retry" style="background:#ffffff26;color:#fff;font-size:13px;min-height:36px;padding:8px 12px">실시간 미리보기 다시 시도</button>
+  </div>
+
+  <div class="top">
+    <div class="row">
+      <input id="memo" type="text" placeholder="메모 (예: 현장1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn" id="plus" title="끝 숫자 +1">+1</button>
+    </div>
+    <div id="chips"></div>
+  </div>
+
+  <div class="bottom">
+    <div class="opts">
+      <label><input type="checkbox" id="autosel" checked>촬영 후 메모 바로 수정</label>
+      <label><input type="checkbox" id="stamp">사진에 메모 새기기</label>
+    </div>
+    <div class="shutrow">
+      <div class="side"><img id="thumb" alt="" hidden></div>
+      <button id="shutter" aria-label="촬영"></button>
+      <div class="side r" id="cnt">0장</div>
+    </div>
+  </div>
+
+  <div id="flash"></div>
+  <div id="toast"></div>
+  <input type="file" id="natin" accept="image/*" capture="environment" hidden>
+</div>
+
+<script>
+(function(){
+var $=function(s){return document.querySelector(s)};
+var memoEl=$('#memo'),vid=$('#vid'),app=$('#app'),natin=$('#natin');
+var stream=null,track=null,imgCap=null,busy=false,lastThumb=null,usedNames={},live=false;
+
+var store={
+  get:function(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+  set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+function pad(n,l){n=String(n);while(n.length<(l||2))n='0'+n;return n}
+function now(){var d=new Date();return{
+  date:d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate()),
+  time:pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()),
+  pretty:d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())
+}}
+function clean(s){return String(s||'').replace(/[\\\/:*?"<>|\r\n\t]/g,'').replace(/\s+/g,' ').trim().slice(0,60)}
+function toast(m,ms){var t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.opacity=0},ms||1400)}
+
+/* 키보드가 올라와도 셔터가 보이도록 화면 크기 맞춤 */
+function fit(){var vv=window.visualViewport;if(!vv)return;app.style.height=vv.height+'px';app.style.top=vv.offsetTop+'px'}
+if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit);fit()}
+
+/* 최근 메모 */
+var recent=store.get('recent',[]);
+function renderChips(){
+  var c=$('#chips');c.innerHTML='';
+  recent.forEach(function(m){
+    var b=document.createElement('button');b.className='chip';b.textContent=m;
+    b.onclick=function(){memoEl.value=m;store.set('last',m);memoEl.focus();memoEl.select();updateCnt()};
+    c.appendChild(b);
+  });
+}
+function pushRecent(m){
+  recent=[m].concat(recent.filter(function(x){return x!==m})).slice(0,8);
+  store.set('recent',recent);renderChips();
+}
+
+/* 장수 카운트 (오늘 기준) */
+function counts(){return store.get('cnt'+now().date,{})}
+function updateCnt(){
+  var c=counts(),m=clean(memoEl.value)||'사진',tot=0;
+  for(var k in c)tot+=c[k];
+  $('#cnt').innerHTML=(c[m]||0)+'장<br>오늘 '+tot+'장';
+}
+function bump(m){var c=counts();c[m]=(c[m]||0)+1;store.set('cnt'+now().date,c);updateCnt()}
+
+/* 카메라 */
+async function startCamera(){
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저/주소에서는 카메라를 쓸 수 없습니다.');
+    if(stream)stream.getTracks().forEach(function(t){t.stop()});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
+    vid.srcObject=stream;
+    try{await vid.play()}catch(e){}
+    track=stream.getVideoTracks()[0];
+    imgCap=('ImageCapture' in window)?new ImageCapture(track):null;
+    live=true;
+    $('#nocam').hidden=true;
+  }catch(e){
+    live=false;
+    $('#nocam').hidden=false;
+  }
+}
+function canvasBlob(c,q){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('변환 실패'))},'image/jpeg',q||0.95)})}
+
+async function grab(){
+  if(imgCap){
+    try{
+      var opt={};
+      try{var caps=await imgCap.getPhotoCapabilities();if(caps.imageWidth&&caps.imageHeight){opt={imageWidth:caps.imageWidth.max,imageHeight:caps.imageHeight.max}}}catch(e){}
+      return await imgCap.takePhoto(opt);
+    }catch(e){
+      try{return await imgCap.takePhoto()}catch(e2){}
+    }
+  }
+  var c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;
+  c.getContext('2d').drawImage(vid,0,0);
+  return canvasBlob(c);
+}
+
+async function stampBlob(blob,memo){
+  var bmp=await createImageBitmap(blob);
+  var c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;
+  var x=c.getContext('2d');x.drawImage(bmp,0,0);
+  var base=Math.min(c.width,c.height),fs=Math.round(base*0.052);
+  x.font='700 '+fs+'px system-ui,"Noto Sans KR",sans-serif';
+  x.textBaseline='alphabetic';
+  var px=Math.round(base*0.055),py=c.height-Math.round(base*0.03);
+  x.shadowColor='rgba(0,0,0,0.6)';x.shadowBlur=Math.round(fs*0.12);x.shadowOffsetX=Math.round(fs*0.04);x.shadowOffsetY=Math.round(fs*0.04);
+  x.fillStyle='#ff9f1a';x.fillText(memo,px,py);
+  return canvasBlob(c);
+}
+
+function fileName(memo){
+  var t=now(),base=memo+'_'+t.date+'_'+t.time,name=base,n=1;
+  while(usedNames[name]){n++;name=base+'-'+n}
+  usedNames[name]=1;return name+'.jpg';
+}
+function save(blob,name){
+  var a=document.createElement('a'),u=URL.createObjectURL(blob);
+  a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u)},15000);
+  var th=$('#thumb');if(lastThumb)URL.revokeObjectURL(lastThumb);
+  lastThumb=URL.createObjectURL(blob);th.src=lastThumb;th.hidden=false;
+}
+
+async function process(blob){
+  var memo=clean(memoEl.value)||'사진';
+  store.set('last',memoEl.value);
+  if($('#stamp').checked){try{blob=await stampBlob(blob,memo)}catch(e){}}
+  var name=fileName(memo);
+  save(blob,name);bump(memo);pushRecent(memo);
+  toast('저장: '+name);
+}
+
+async function shoot(){
+  if(!live){natin.click();return}
+  if(busy)return;busy=true;
+  var f=$('#flash');f.style.opacity=.8;setTimeout(function(){f.style.opacity=0},90);
+  try{
+    var blob=await grab();
+    await process(blob);
+  }catch(e){toast('촬영 실패: '+(e&&e.message?e.message:e),2500)}
+  busy=false;
+  if($('#autosel').checked){memoEl.focus();memoEl.select()}
+}
+
+/* 이벤트 */
+$('#shutter').addEventListener('click',shoot);
+memoEl.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();shoot()}});
+memoEl.addEventListener('input',function(){store.set('last',memoEl.value);updateCnt()});
+$('#plus').addEventListener('click',function(){
+  var v=memoEl.value;
+  if(/\d+(?!.*\d)/.test(v)){v=v.replace(/(\d+)(?!.*\d)/,function(m){return pad(parseInt(m,10)+1,m.length)})}
+  else{v=v+'2'}
+  memoEl.value=v;store.set('last',v);updateCnt();memoEl.focus();
+});
+$('#retry').addEventListener('click',startCamera);
+$('#native').addEventListener('click',function(){natin.click()});
+natin.addEventListener('change',async function(){
+  var f=natin.files&&natin.files[0];natin.value='';
+  if(!f)return;
+  try{await process(f)}catch(e){toast('저장 실패',2000)}
+  if($('#autosel').checked){memoEl.focus();memoEl.select()}
+});
+document.addEventListener('visibilitychange',function(){
+  if(!document.hidden&&(!track||track.readyState==='ended'))startCamera();
+});
+
+memoEl.value=store.get('last','');
+renderChips();updateCnt();startCamera();
+setTimeout(function(){memoEl.focus();memoEl.select()},300);
+})();
+</script>
+</body>
+</html>
