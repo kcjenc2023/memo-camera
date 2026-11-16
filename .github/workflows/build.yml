@@ -124,6 +124,7 @@ jobs:
                 String folder = call.getString("folder", "현장사진");
                 String name = call.getString("name");
                 String data = call.getString("data");
+                String shotId = call.getString("shotId", "");
                 double ratio = call.getDouble("ratio", 0.0);
           double zoom = call.getDouble("zoom", 1.0);
                 int lng = call.getInt("long", 0);
@@ -142,7 +143,20 @@ jobs:
                   c.close();
                   if (found) { JSObject r = new JSObject(); r.put("ok", true); r.put("existed", true); call.resolve(r); return; }
                 }
-                byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+                byte[] bytes;
+                if (shotId != null && !shotId.isEmpty()) {
+                  java.io.File sf = CamPreview.shotFile(shotId);
+                  if (sf == null) { call.reject("shot missing"); return; }
+                  java.io.FileInputStream fin = new java.io.FileInputStream(sf);
+                  java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                  byte[] buf = new byte[65536];
+                  int rd;
+                  while ((rd = fin.read(buf)) > 0) bos.write(buf, 0, rd);
+                  fin.close();
+                  bytes = bos.toByteArray();
+                } else {
+                  bytes = Base64.decode(data, Base64.DEFAULT);
+                }
                 BitmapFactory.Options bo = new BitmapFactory.Options();
                 bo.inJustDecodeBounds = true;
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bo);
@@ -238,6 +252,7 @@ jobs:
                 done.put(MediaStore.MediaColumns.IS_PENDING, 0);
                 cr.update(u, done, null, null);
                 long t3 = System.currentTimeMillis();
+                if (shotId != null && !shotId.isEmpty()) CamPreview.dropShot(shotId);
                 JSObject res = new JSObject();
                 res.put("ok", true);
                 res.put("thumb", Base64.encodeToString(enc(fit(out, thL), 70), Base64.NO_WRAP));
@@ -254,6 +269,424 @@ jobs:
             }
           }
           JAVA
+          cat > $D/CamPreview.java <<'JAVA'
+          package com.kcjenc.memocam;
+
+          import android.Manifest;
+          import android.content.Context;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Color;
+          import android.hardware.camera2.CameraCharacteristics;
+          import android.hardware.camera2.CameraManager;
+          import android.util.Range;
+          import android.util.Size;
+          import android.util.SizeF;
+          import android.view.ViewGroup;
+          import android.webkit.WebView;
+          import androidx.camera.camera2.interop.Camera2CameraInfo;
+          import androidx.camera.core.Camera;
+          import androidx.camera.core.CameraFilter;
+          import androidx.camera.core.CameraInfo;
+          import androidx.camera.core.CameraSelector;
+          import androidx.camera.core.ImageCapture;
+          import androidx.camera.core.ImageCaptureException;
+          import androidx.camera.core.Preview;
+          import androidx.camera.core.ZoomState;
+          import androidx.camera.core.resolutionselector.AspectRatioStrategy;
+          import androidx.camera.core.resolutionselector.ResolutionSelector;
+          import androidx.camera.core.resolutionselector.ResolutionStrategy;
+          import androidx.camera.lifecycle.ProcessCameraProvider;
+          import androidx.camera.view.PreviewView;
+          import androidx.core.content.ContextCompat;
+          import androidx.lifecycle.LifecycleOwner;
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.PermissionState;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+          import com.getcapacitor.annotation.Permission;
+          import com.getcapacitor.annotation.PermissionCallback;
+          import com.google.common.util.concurrent.ListenableFuture;
+          import java.io.File;
+          import java.util.ArrayList;
+          import java.util.List;
+          import java.util.Map;
+          import java.util.UUID;
+          import java.util.concurrent.ConcurrentHashMap;
+          import java.util.concurrent.ExecutorService;
+          import java.util.concurrent.Executors;
+
+          @CapacitorPlugin(name = "CamPreview", permissions = { @Permission(strings = { Manifest.permission.CAMERA }, alias = "camera") })
+          public class CamPreview extends Plugin {
+            static final Map<String, File> SHOTS = new ConcurrentHashMap<>();
+            static File shotFile(String id) { return SHOTS.get(id); }
+            static void dropShot(String id) { File f = SHOTS.remove(id); if (f != null) f.delete(); }
+
+            private static class Lens { String id; double equiv; double ratio; }
+            private static class Plan { String id; double zoom; }
+            private interface ShotCb { void done(File f, Exception e); }
+
+            private PreviewView pv;
+            private ProcessCameraProvider provider;
+            private Camera camera;
+            private ImageCapture capture;
+            private final ExecutorService exec = Executors.newSingleThreadExecutor();
+            private final List<Lens> lenses = new ArrayList<>();
+            private Lens ref;
+            private double refZmin = 1.0;
+            private String curId = null;
+            private int longSide = 4000;
+            private int rx, ry, rw, rh;
+
+            private static String msg(Throwable e) { return String.valueOf(e.getMessage()); }
+
+            @PluginMethod
+            public void start(PluginCall call) {
+              if (getPermissionState("camera") != PermissionState.GRANTED) {
+                requestPermissionForAlias("camera", call, "permCb");
+                return;
+              }
+              doStart(call);
+            }
+
+            @PermissionCallback
+            private void permCb(PluginCall call) {
+              if (getPermissionState("camera") == PermissionState.GRANTED) doStart(call);
+              else call.reject("camera permission denied");
+            }
+
+            private void doStart(final PluginCall call) {
+              rx = call.getInt("x", 0);
+              ry = call.getInt("y", 0);
+              rw = call.getInt("w", 1080);
+              rh = call.getInt("h", 1440);
+              longSide = call.getInt("long", 4000);
+              getActivity().runOnUiThread(() -> {
+                try {
+                  scanLenses();
+                  WebView web = getBridge().getWebView();
+                  ViewGroup parent = (ViewGroup) web.getParent();
+                  if (pv == null) {
+                    pv = new PreviewView(getContext());
+                    pv.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
+                    pv.setScaleType(PreviewView.ScaleType.FILL_CENTER);
+                    parent.setBackgroundColor(Color.BLACK);
+                    ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(rw, rh);
+                    lp.leftMargin = rx;
+                    lp.topMargin = ry;
+                    parent.addView(pv, 0, lp);
+                    web.setBackgroundColor(Color.TRANSPARENT);
+                  } else {
+                    applyRect();
+                  }
+                  final ListenableFuture<ProcessCameraProvider> fut = ProcessCameraProvider.getInstance(getContext());
+                  fut.addListener(() -> {
+                    try {
+                      provider = fut.get();
+                      try {
+                        bind(ref.id, 1.0);
+                      } catch (Exception e1) {
+                        bind(null, 1.0);
+                      }
+                      JSObject r = new JSObject();
+                      r.put("ok", true);
+                      r.put("info", lensInfo());
+                      r.put("minT", minTarget());
+                      r.put("maxT", 10);
+                      call.resolve(r);
+                    } catch (Exception e) {
+                      call.reject(msg(e));
+                    }
+                  }, ContextCompat.getMainExecutor(getContext()));
+                } catch (Exception e) {
+                  call.reject(msg(e));
+                }
+              });
+            }
+
+            private void applyRect() {
+              if (pv == null) return;
+              ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) pv.getLayoutParams();
+              lp.width = rw;
+              lp.height = rh;
+              lp.leftMargin = rx;
+              lp.topMargin = ry;
+              pv.setLayoutParams(lp);
+            }
+
+            @PluginMethod
+            public void rect(PluginCall call) {
+              rx = call.getInt("x", rx);
+              ry = call.getInt("y", ry);
+              rw = call.getInt("w", rw);
+              rh = call.getInt("h", rh);
+              getActivity().runOnUiThread(() -> {
+                try { applyRect(); call.resolve(); } catch (Exception e) { call.reject(msg(e)); }
+              });
+            }
+
+            private void scanLenses() throws Exception {
+              lenses.clear();
+              ref = null;
+              CameraManager cm = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+              for (String id : cm.getCameraIdList()) {
+                CameraCharacteristics c = cm.getCameraCharacteristics(id);
+                Integer face = c.get(CameraCharacteristics.LENS_FACING);
+                if (face == null || face != CameraCharacteristics.LENS_FACING_BACK) continue;
+                float[] fl = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                SizeF ss = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                if (fl == null || fl.length == 0 || ss == null) continue;
+                Lens l = new Lens();
+                l.id = id;
+                l.equiv = fl[0] * 43.27 / Math.hypot(ss.getWidth(), ss.getHeight());
+                lenses.add(l);
+              }
+              double bd = 1e9;
+              for (Lens l : lenses) {
+                double d = Math.abs(l.equiv - 24.0);
+                if (d < bd) { bd = d; ref = l; }
+              }
+              if (ref == null) throw new Exception("no back camera");
+              for (Lens l : lenses) l.ratio = l.equiv / ref.equiv;
+              refZmin = 1.0;
+              try {
+                Range<Float> zr = cm.getCameraCharacteristics(ref.id).get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE);
+                if (zr != null) refZmin = zr.getLower();
+              } catch (Throwable t) { }
+            }
+
+            private String lensInfo() {
+              StringBuilder sb = new StringBuilder();
+              for (Lens l : lenses) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append("camera ").append(l.id).append(": ").append(String.format(java.util.Locale.US, "%.2f", l.ratio)).append("x");
+                if (l == ref) sb.append("(기준)");
+              }
+              return sb.toString();
+            }
+
+            private double minTarget() {
+              double m = 1.0;
+              for (Lens l : lenses) if (l.ratio < m) m = l.ratio;
+              if (refZmin < m) m = refZmin;
+              return m < 0.55 ? 0.5 : Math.round(m * 10) / 10.0;
+            }
+
+            private CameraSelector selectorFor(final String id) {
+              if (id == null) return CameraSelector.DEFAULT_BACK_CAMERA;
+              return new CameraSelector.Builder().addCameraFilter(new CameraFilter() {
+                @Override
+                public List<CameraInfo> filter(List<CameraInfo> infos) {
+                  List<CameraInfo> out = new ArrayList<>();
+                  for (CameraInfo ci : infos) {
+                    if (id.equals(Camera2CameraInfo.from(ci).getCameraId())) out.add(ci);
+                  }
+                  return out;
+                }
+              }).build();
+            }
+
+            private void bind(String id, double zoom) throws Exception {
+              provider.unbindAll();
+              Preview preview = new Preview.Builder()
+                  .setResolutionSelector(new ResolutionSelector.Builder()
+                      .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY).build())
+                  .build();
+              preview.setSurfaceProvider(pv.getSurfaceProvider());
+              ResolutionSelector.Builder rsb = new ResolutionSelector.Builder()
+                  .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY);
+              if (longSide > 0) {
+                rsb.setResolutionStrategy(new ResolutionStrategy(new Size(longSide, longSide * 3 / 4),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER));
+              } else {
+                rsb.setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY);
+              }
+              capture = new ImageCapture.Builder()
+                  .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                  .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+                  .setResolutionSelector(rsb.build())
+                  .build();
+              camera = provider.bindToLifecycle((LifecycleOwner) getActivity(), selectorFor(id), preview, capture);
+              curId = id;
+              setZoomRatioSafe(zoom);
+            }
+
+            private void setZoomRatioSafe(double z) {
+              if (camera == null) return;
+              float v = (float) z;
+              ZoomState zs = camera.getCameraInfo().getZoomState().getValue();
+              if (zs != null) v = Math.max(zs.getMinZoomRatio(), Math.min(zs.getMaxZoomRatio(), v));
+              camera.getCameraControl().setZoomRatio(v);
+            }
+
+            private Plan plan(double t) {
+              Plan p = new Plan();
+              if (Math.abs(Math.log(t)) < 0.08 && ref != null) { p.id = ref.id; p.zoom = 1.0; return p; }
+              Lens best = null;
+              double bd = Math.log(1.3);
+              for (Lens l : lenses) {
+                double d = Math.abs(Math.log(l.ratio / t));
+                if (d < bd) { bd = d; best = l; }
+              }
+              if (best != null) { p.id = best.id; p.zoom = Math.max(1.0, t / best.ratio); return p; }
+              Lens base = null;
+              for (Lens l : lenses) {
+                if (l.ratio <= t * 1.1 && (base == null || l.ratio > base.ratio)) base = l;
+              }
+              if (base == null) {
+                if (ref != null && refZmin <= t + 0.01) { p.id = ref.id; p.zoom = t; return p; }
+                return null;
+              }
+              p.id = base.id;
+              p.zoom = t / base.ratio;
+              return p;
+            }
+
+            @PluginMethod
+            public void zoom(final PluginCall call) {
+              final double t = call.getDouble("t", 1.0);
+              getActivity().runOnUiThread(() -> {
+                try {
+                  Plan p = plan(t);
+                  JSObject r = new JSObject();
+                  if (p == null || provider == null) { r.put("ok", false); call.resolve(r); return; }
+                  if (!p.id.equals(curId)) {
+                    try { bind(p.id, p.zoom); } catch (Exception e) { bind(ref.id, Math.max(1.0, t)); }
+                  } else {
+                    setZoomRatioSafe(p.zoom);
+                  }
+                  r.put("ok", true);
+                  r.put("lens", curId);
+                  call.resolve(r);
+                } catch (Exception e) {
+                  call.reject(msg(e));
+                }
+              });
+            }
+
+            private void takeOne(final ShotCb cb) {
+              try {
+                final File f = File.createTempFile("shot", ".jpg", getContext().getCacheDir());
+                getActivity().runOnUiThread(() -> {
+                  try {
+                    capture.takePicture(new ImageCapture.OutputFileOptions.Builder(f).build(), exec,
+                        new ImageCapture.OnImageSavedCallback() {
+                          @Override
+                          public void onImageSaved(ImageCapture.OutputFileResults r) { cb.done(f, null); }
+                          @Override
+                          public void onError(ImageCaptureException ex) { f.delete(); cb.done(null, ex); }
+                        });
+                  } catch (Exception ex) {
+                    f.delete();
+                    cb.done(null, ex);
+                  }
+                });
+              } catch (Exception e) {
+                cb.done(null, e);
+              }
+            }
+
+            private void burst(final int n, final List<File> got, final long t0, final PluginCall call) {
+              takeOne((f, e) -> {
+                if (e != null) {
+                  for (File g : got) g.delete();
+                  call.reject(msg(e));
+                  return;
+                }
+                got.add(f);
+                if (got.size() < n) { burst(n, got, t0, call); return; }
+                File best = got.get(0);
+                if (n > 1) {
+                  double bs = -1;
+                  for (File g : got) {
+                    double s = sharp(g);
+                    if (s > bs) { bs = s; best = g; }
+                  }
+                  for (File g : got) if (g != best) g.delete();
+                }
+                String id = UUID.randomUUID().toString();
+                SHOTS.put(id, best);
+                JSObject r = new JSObject();
+                r.put("ok", true);
+                r.put("id", id);
+                r.put("ms", System.currentTimeMillis() - t0);
+                call.resolve(r);
+              });
+            }
+
+            @PluginMethod
+            public void shoot(PluginCall call) {
+              int n = Math.max(1, Math.min(3, call.getInt("burst", 1)));
+              File[] old = getContext().getCacheDir().listFiles();
+              if (old != null) {
+                for (File o : old) {
+                  if (o.getName().startsWith("shot") && System.currentTimeMillis() - o.lastModified() > 600000L && !SHOTS.containsValue(o)) o.delete();
+                }
+              }
+              burst(n, new ArrayList<File>(), System.currentTimeMillis(), call);
+            }
+
+            private double sharp(File f) {
+              try {
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(f.getPath(), o);
+                int ss = 1;
+                while (Math.max(o.outWidth, o.outHeight) / (ss * 2) >= 600) ss *= 2;
+                BitmapFactory.Options o2 = new BitmapFactory.Options();
+                o2.inSampleSize = ss;
+                Bitmap b = BitmapFactory.decodeFile(f.getPath(), o2);
+                if (b == null) return 0;
+                int w = b.getWidth(), h = b.getHeight();
+                int[] px = new int[w * h];
+                b.getPixels(px, 0, w, 0, 0, w, h);
+                b.recycle();
+                float[] g = new float[w * h];
+                for (int i = 0; i < g.length; i++) {
+                  int p = px[i];
+                  g[i] = 0.3f * ((p >> 16) & 255) + 0.59f * ((p >> 8) & 255) + 0.11f * (p & 255);
+                }
+                double sum = 0, sq = 0;
+                int cnt = 0;
+                for (int y = 1; y < h - 1; y++) {
+                  for (int x = 1; x < w - 1; x++) {
+                    int i = y * w + x;
+                    double l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+                    sum += l;
+                    sq += l * l;
+                    cnt++;
+                  }
+                }
+                return cnt == 0 ? 0 : sq / cnt - (sum / cnt) * (sum / cnt);
+              } catch (Throwable t) {
+                return 0;
+              }
+            }
+
+            @PluginMethod
+            public void stop(PluginCall call) {
+              getActivity().runOnUiThread(() -> {
+                try {
+                  if (provider != null) provider.unbindAll();
+                  if (pv != null) {
+                    ViewGroup parent = (ViewGroup) pv.getParent();
+                    if (parent != null) parent.removeView(pv);
+                    pv = null;
+                  }
+                  camera = null;
+                  capture = null;
+                  curId = null;
+                  call.resolve();
+                } catch (Exception e) {
+                  call.reject(msg(e));
+                }
+              });
+            }
+          }
+
+          JAVA
           cat > $D/MainActivity.java <<'JAVA'
           package com.kcjenc.memocam;
 
@@ -264,11 +697,14 @@ jobs:
             @Override
             public void onCreate(Bundle savedInstanceState) {
               registerPlugin(MediaSaver.class);
+              registerPlugin(CamPreview.class);
               super.onCreate(savedInstanceState);
               getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             }
           }
           JAVA
+          perl -0pi -e 's/^dependencies \{/dependencies {\n    implementation "androidx.camera:camera-core:1.3.4"\n    implementation "androidx.camera:camera-camera2:1.3.4"\n    implementation "androidx.camera:camera-lifecycle:1.3.4"\n    implementation "androidx.camera:camera-view:1.3.4"/m' ../../build.gradle
+          grep -n "androidx.camera" ../../build.gradle
           sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n</manifest>#' AndroidManifest.xml
           sed -i 's#<activity#<activity android:screenOrientation="portrait"#' AndroidManifest.xml
           cat AndroidManifest.xml
