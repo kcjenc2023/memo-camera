@@ -37,7 +37,7 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 #nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
 #nocam .btn{background:#ffd54a;color:#000}
 #thumb{cursor:pointer}
-#vwrap{position:absolute;overflow:hidden;background:#111}
+#vwrap{position:absolute;overflow:hidden;background:#111;touch-action:none}
 #set{position:absolute;inset:0;z-index:8;background:#0b0b0b;display:flex;flex-direction:column}
 .sbody{flex:1;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
 .fld{padding:10px 14px}
@@ -113,7 +113,12 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
       <div class="fld"><label>사진 비율</label><select id="s-ratio"><option value="34">3:4</option><option value="916">9:16</option><option value="11">1:1</option><option value="full">FULL (화면 꽉 차게)</option></select><small>미리보기 화면도 이 비율로 바뀝니다. 삼성 카메라의 비율 설정과 같은 종류입니다.</small></div>
       <div class="fld"><label>해상도(사이즈)</label><select id="s-res"></select><small id="s-resinfo"></small></div>
       <div class="fld"><label>JPG 화질</label><select id="s-q"><option value="0.95">높음</option><option value="0.9">표준</option><option value="0.8">작은 파일</option></select><small>비율을 바꾸거나 크기를 줄이거나 메모를 새길 때 적용됩니다.</small></div>
-      <div class="fld"><button class="btn" id="s-native" style="width:100%">삼성 기본 카메라 앱으로 촬영</button><small>삼성 카메라 앱의 해상도·비율 설정(50MP, 200MP 등)을 그대로 따릅니다. 메모 새기기 외에는 사진을 손대지 않습니다.</small></div>
+      <div class="fld"><label>카메라(렌즈)</label><select id="s-cam"></select><small>초광각 같은 렌즈가 목록에 있으면 선택해서 건물 전체를 담을 수 있습니다. 목록에 없으면 이 브라우저가 해당 렌즈를 열어 주지 않는 것입니다. 촬영 화면에서 두 손가락으로 벌리면 확대됩니다(지원되는 기기만).</small></div>
+      <div class="fld" id="s-dirbox" hidden><label>저장 폴더 (지원되는 브라우저만)</label>
+        <div style="display:flex;gap:8px"><button class="btn" id="s-dirpick" style="flex:1;min-height:44px;font-size:15px">저장 폴더 지정</button><button class="btn" id="s-dirclear" style="min-height:44px;font-size:15px">해제</button></div>
+        <small id="s-dirname"></small><small>지정하면 사진이 그 폴더 안의 "사업명" 폴더에 다운로드 알림 없이 바로 저장됩니다.</small></div>
+      <div class="fld"><button class="btn" id="s-native" style="width:100%">삼성 기본 카메라 앱으로 촬영</button><small>삼성 카메라 앱의 해상도·비율 설정(50MP, 200MP 등)을 그대로 따릅니다. 글씨 새기기 외에는 사진을 손대지 않습니다.</small></div>
+      <div class="fld"><label>앱 버전</label><div id="s-ver" style="font-size:15px;color:#ddd"></div><button class="btn" id="s-update" style="margin-top:8px;min-height:40px;font-size:14px;padding:8px 12px">최신 버전으로 새로고침</button><small>GitHub에 새 파일을 올렸는데 화면이 그대로면 이 버튼을 누르세요. 저장된 사진과 설정은 지워지지 않습니다.</small></div>
     </div>
   </div>
   <div id="gal" hidden>
@@ -204,20 +209,52 @@ async function startCamera(){
   try{
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저/주소에서는 카메라를 쓸 수 없습니다.');
     if(stream)stream.getTracks().forEach(function(t){t.stop()});
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
+    var vc={width:{ideal:1920},height:{ideal:1440}};
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:Object.assign({},vc,cfg.cam?{deviceId:{exact:cfg.cam}}:{facingMode:{ideal:'environment'}}),audio:false});
+    }catch(e1){
+      if(!cfg.cam)throw e1;
+      cfg.cam='';saveCfg();
+      stream=await navigator.mediaDevices.getUserMedia({video:Object.assign({},vc,{facingMode:{ideal:'environment'}}),audio:false});
+    }
     vid.srcObject=stream;
     try{await vid.play()}catch(e){}
     track=stream.getVideoTracks()[0];
     imgCap=('ImageCapture' in window)?new ImageCapture(track):null;
     live=true;
     $('#nocam').hidden=true;
-    loadCaps();
+    loadCaps();fillCams();keepAwake();
   }catch(e){
     live=false;
     $('#nocam').hidden=false;
   }
 }
 function canvasBlob(c,q){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('변환 실패'))},'image/jpeg',q||0.95)})}
+
+/* 렌즈 목록 / 화면 켜짐 유지 */
+async function fillCams(){
+  var sel=$('#s-cam');
+  try{
+    var ds=(await navigator.mediaDevices.enumerateDevices()).filter(function(d){return d.kind==='videoinput'});
+    sel.innerHTML='';
+    var o=document.createElement('option');o.value='';o.textContent='자동 (후면 기본 카메라)';sel.appendChild(o);
+    ds.forEach(function(d,i){
+      var lb=(d.label||('카메라 '+(i+1))).replace(/facing back/i,'후면').replace(/facing front/i,'전면');
+      var op=document.createElement('option');op.value=d.deviceId;op.textContent=lb;sel.appendChild(op);
+    });
+    sel.value=cfg.cam||'';
+    if(sel.value!==(cfg.cam||''))sel.value='';
+  }catch(e){}
+}
+var wl=null;
+async function keepAwake(){
+  try{
+    if('wakeLock' in navigator&&!wl){
+      wl=await navigator.wakeLock.request('screen');
+      wl.addEventListener('release',function(){wl=null});
+    }
+  }catch(e){}
+}
 
 /* 이 폰의 크롬이 허용하는 최대 사진 크기 */
 var capMax=null;
@@ -320,12 +357,25 @@ function fileName(memo){
   while(usedNames[name]){n++;name=base+'-'+n}
   usedNames[name]=1;return name+'.jpg';
 }
+function downloadBlob(blob,name){
+  var a=document.createElement('a'),u=URL.createObjectURL(blob);
+  a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u)},15000);
+}
+/* 저장 폴더를 지정한 경우: 그 안의 "사업명" 폴더에 알림 없이 저장 */
+async function saveToDir(blob,name){
+  if(!dirHandle)return false;
+  try{
+    var perm=await dirHandle.queryPermission({mode:'readwrite'});
+    if(perm!=='granted')perm=await dirHandle.requestPermission({mode:'readwrite'});
+    if(perm!=='granted')return false;
+    var P=clean(cfg.proj),d=P?await dirHandle.getDirectoryHandle(P,{create:true}):dirHandle;
+    var fh=await d.getFileHandle(name,{create:true}),w=await fh.createWritable();
+    await w.write(blob);await w.close();return true;
+  }catch(e){return false}
+}
 function save(blob,name,skipDl){
-  if(!skipDl){
-    var a=document.createElement('a'),u=URL.createObjectURL(blob);
-    a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
-    setTimeout(function(){URL.revokeObjectURL(u)},15000);
-  }
+  if(!skipDl)downloadBlob(blob,name);
   var th=$('#thumb');if(lastThumb)URL.revokeObjectURL(lastThumb);
   lastThumb=URL.createObjectURL(blob);th.src=lastThumb;th.hidden=false;
 }
@@ -336,10 +386,18 @@ async function process(blob,native){
   var info={proj:clean(cfg.proj),by:clean(cfg.by),taken:fmtDT(takenDate())};
   try{blob=await finalize(blob,memo,native,stampLines(memo,info))}catch(e){toast('사진 변환 실패 (원본 저장)',2000)}
   var name=fileName(memo);
-  var dl=$('#keepdl').checked;
-  save(blob,name,!dl);bump(memo);pushRecent(memo);
-  addShot(blob,memo,name,info).then(refreshThumb).catch(function(){});
-  toast((dl?'저장: ':'앱에 보관: ')+name);
+  var dl=$('#keepdl').checked,inDir=false;
+  if(dirHandle){inDir=await saveToDir(blob,name);if(!inDir)toast('지정한 폴더에 저장하지 못했습니다',2200)}
+  save(blob,name,inDir||!dl);bump(memo);pushRecent(memo);
+  addShot(blob,memo,name,info).then(refreshThumb).catch(function(){
+    /* 앱 보관이 실패하면(저장 공간 부족 등) 사진이 사라지지 않도록 폰에 바로 저장 */
+    toast('앱 보관 실패(저장 공간 부족?)'+(inDir||dl?'':' · 폰에 바로 저장합니다'),3200);
+    if(!inDir&&!dl)downloadBlob(blob,name);
+  });
+  if(inDir)toast('폴더 저장: '+(clean(cfg.proj)?clean(cfg.proj)+'/':'')+name);
+  else if(!dirHandle||dl)toast((dl?'저장: ':'앱에 보관: ')+name);
+  else toast('앱에 보관: '+name);
+  try{if(navigator.vibrate)navigator.vibrate(25)}catch(e){}
 }
 
 async function shoot(){
@@ -374,7 +432,10 @@ natin.addEventListener('change',async function(){
   if($('#autosel').checked){memoEl.focus();memoEl.select()}
 });
 document.addEventListener('visibilitychange',function(){
-  if(!document.hidden&&(!track||track.readyState==='ended'))startCamera();
+  if(document.hidden)return;
+  keepAwake();
+  if(!track||track.readyState==='ended')startCamera();
+  else{try{vid.play().catch(function(){})}catch(e){}}
 });
 
 /* ===== ZIP 만들기 (무압축, JPG는 이미 압축됨) ===== */
@@ -411,17 +472,22 @@ function db(){
   if(dbp)return dbp;
   dbp=new Promise(function(res,rej){
     try{
-      var r=indexedDB.open('memocam',1);
-      r.onupgradeneeded=function(){r.result.createObjectStore('shots',{keyPath:'id',autoIncrement:true})};
+      var r=indexedDB.open('memocam',2);
+      r.onupgradeneeded=function(){
+        var d=r.result;
+        if(!d.objectStoreNames.contains('shots'))d.createObjectStore('shots',{keyPath:'id',autoIncrement:true});
+        if(!d.objectStoreNames.contains('kv'))d.createObjectStore('kv');
+      };
       r.onsuccess=function(){res(r.result)};
       r.onerror=function(){rej(r.error)};
     }catch(e){rej(e)}
   });
   return dbp;
 }
-function tx(mode,fn){
+function tx(mode,fn,sn){
+  sn=sn||'shots';
   return db().then(function(d){return new Promise(function(res,rej){
-    var t=d.transaction('shots',mode),out=fn(t.objectStore('shots'));
+    var t=d.transaction(sn,mode),out=fn(t.objectStore(sn));
     t.oncomplete=function(){res(out?out.result:undefined)};
     t.onerror=t.onabort=function(){rej(t.error)};
   })});
@@ -599,6 +665,7 @@ $('#keepdl').addEventListener('change',function(){
 });
 function refreshDtLabel(){$('#st-datel').textContent=cfg.dt?'일시(직접입력)':'일시'}
 refreshDtLabel();
+loadDir();
 $('#autosel').checked=store.get('autosel',false);
 $('#autosel').addEventListener('change',function(){store.set('autosel',this.checked)});
 
@@ -606,7 +673,7 @@ $('#autosel').addEventListener('change',function(){store.set('autosel',this.chec
 var setOpen=false;
 function openSet(){
   $('#s-proj').value=cfg.proj||'';$('#s-by').value=cfg.by||'';$('#s-dt').value=cfg.dt||'';
-  $('#s-ratio').value=cfg.ratio;fillRes();$('#s-q').value=String(cfg.q);
+  $('#s-ratio').value=cfg.ratio;fillRes();fillCams();refreshDirUI();$('#s-q').value=String(cfg.q);
   $('#set').hidden=false;setOpen=true;
   try{history.pushState({o:'set'},'')}catch(e){}
 }
@@ -621,6 +688,63 @@ $('#s-ratio').addEventListener('change',function(){cfg.ratio=this.value;saveCfg(
 $('#s-res').addEventListener('change',function(){cfg.res=this.value;saveCfg()});
 $('#s-q').addEventListener('change',function(){cfg.q=parseFloat(this.value);saveCfg()});
 $('#s-native').addEventListener('click',function(){natin.click()});
+$('#s-cam').addEventListener('change',function(){cfg.cam=this.value;saveCfg();startCamera()});
+
+/* 저장 폴더 지정 (File System Access API를 지원하는 브라우저에서만 표시) */
+var dirHandle=null;
+function refreshDirUI(){
+  $('#s-dirbox').hidden=!('showDirectoryPicker' in window);
+  $('#s-dirname').textContent=dirHandle?('저장 폴더: '+dirHandle.name+(clean(cfg.proj)?' / '+clean(cfg.proj):'')):'지정 안 됨 (다운로드 폴더에 저장)';
+}
+async function loadDir(){
+  try{dirHandle=(await tx('readonly',function(s){return s.get('dir')},'kv'))||null}catch(e){dirHandle=null}
+  refreshDirUI();
+}
+$('#s-dirpick').addEventListener('click',async function(){
+  try{
+    var h=await window.showDirectoryPicker({mode:'readwrite'});
+    dirHandle=h;
+    await tx('readwrite',function(s){return s.put(h,'dir')},'kv');
+    refreshDirUI();toast('저장 폴더를 지정했습니다');
+  }catch(e){if(!(e&&e.name==='AbortError'))toast('폴더를 지정하지 못했습니다',2200)}
+});
+$('#s-dirclear').addEventListener('click',async function(){
+  dirHandle=null;
+  try{await tx('readwrite',function(s){return s.delete('dir')},'kv')}catch(e){}
+  refreshDirUI();
+});
+
+/* 앱 버전 / 최신 버전으로 새로고침 */
+var VER='v10 · 2026-11-16';
+$('#s-ver').textContent=VER;
+$('#s-update').addEventListener('click',async function(){
+  try{
+    if(navigator.serviceWorker){var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++)await rs[i].unregister()}
+    if(window.caches){var ks=await caches.keys();for(var j=0;j<ks.length;j++)await caches.delete(ks[j])}
+  }catch(e){}
+  location.href=location.pathname+'?v='+Date.now();
+});
+
+/* 두 손가락으로 확대 (카메라가 줌을 지원할 때만) */
+(function(){
+  var w=$('#vwrap'),d0=0,z0=1,zc=null;
+  function dist(t){var dx=t[0].clientX-t[1].clientX,dy=t[0].clientY-t[1].clientY;return Math.sqrt(dx*dx+dy*dy)}
+  w.addEventListener('touchstart',function(e){
+    if(e.touches.length!==2||!track)return;
+    try{zc=track.getCapabilities?track.getCapabilities().zoom||null:null}catch(x){zc=null}
+    if(!zc)return;
+    d0=dist(e.touches);
+    var st=track.getSettings?track.getSettings():{};
+    z0=st.zoom||zc.min||1;
+  },{passive:true});
+  w.addEventListener('touchmove',function(e){
+    if(e.touches.length!==2||!zc||!d0)return;
+    var z=Math.min(zc.max,Math.max(zc.min,z0*dist(e.touches)/d0));
+    track.applyConstraints({advanced:[{zoom:z}]}).catch(function(){});
+    toast('줌 '+z.toFixed(1)+'x',700);
+  },{passive:true});
+  w.addEventListener('touchend',function(e){if(e.touches.length<2)d0=0},{passive:true});
+})();
 if('serviceWorker' in navigator){try{navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}}
 
 memoEl.value=store.get('last','');
