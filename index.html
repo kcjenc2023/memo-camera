@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>메모 카메라</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#000;color:#fff;font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;overflow:hidden}
+#app{position:fixed;left:0;top:0;width:100%;height:100dvh;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#111}
+.top{position:absolute;left:0;right:0;top:0;z-index:2;padding:calc(env(safe-area-inset-top) + 10px) 12px 20px;background:linear-gradient(#000b,#0000)}
+.row{display:flex;gap:8px;align-items:center}
+#memo{flex:1;min-width:0;font-size:22px;font-weight:600;padding:12px 14px;border-radius:12px;border:2px solid #ffffff55;background:#000a;color:#fff;outline:none}
+#memo:focus{border-color:#ffd54a}
+.btn{border:0;border-radius:12px;background:#ffffff26;color:#fff;font-size:16px;font-weight:600;padding:12px 14px;min-height:48px}
+.btn:active{background:#ffffff55}
+#chips{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:0;border-radius:999px;background:#ffffff2e;color:#fff;font-size:15px;padding:7px 13px}
+.bottom{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:30px 14px calc(env(safe-area-inset-bottom) + 12px);background:linear-gradient(#0000,#000c)}
+.opts{display:flex;gap:16px;justify-content:center;font-size:13px;margin-bottom:10px;color:#ddd;flex-wrap:wrap}
+.opts label{display:flex;align-items:center;gap:5px}
+.shutrow{display:flex;align-items:center;justify-content:space-between}
+.side{width:84px;font-size:12px;color:#ddd;line-height:1.35}
+.side.r{text-align:right}
+#shutter{width:76px;height:76px;border-radius:50%;border:5px solid #fff;background:#ffffff33;padding:0;position:relative}
+#shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
+#shutter:active::after{background:#ffd54a}
+#thumb{width:52px;height:52px;border-radius:10px;object-fit:cover;background:#222;border:2px solid #ffffff66}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:3;transition:opacity .25s}
+#toast{position:absolute;left:50%;top:38%;transform:translateX(-50%);z-index:4;background:#000c;padding:10px 16px;border-radius:10px;font-size:15px;max-width:86%;text-align:center;pointer-events:none;opacity:0;transition:opacity .2s}
+#nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
+#nocam .btn{background:#ffd54a;color:#000}
+#thumb{cursor:pointer}
+.gtools{display:flex;gap:8px;align-items:center;padding:0 12px 8px;flex-wrap:wrap}
+.gtools .btn{min-height:40px;font-size:14px;padding:8px 12px}
+#gstat{font-size:12px;color:#aaa;flex-basis:100%}
+#gal,#view{position:absolute;inset:0;z-index:6;background:#0b0b0b;display:flex;flex-direction:column}
+#view{z-index:7;background:#000}
+.ghead{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 12px 8px}
+.ghead b{flex:1;font-size:17px}
+#gchips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px;scrollbar-width:none;flex:none}
+#gchips::-webkit-scrollbar{display:none}
+.chip.on{background:#ffd54a;color:#000}
+#ggrid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:0 3px calc(env(safe-area-inset-bottom) + 10px);align-content:start}
+.cell{position:relative;aspect-ratio:1;background:#222}
+.cell img{width:100%;height:100%;object-fit:cover;display:block}
+.cell span{position:absolute;left:0;right:0;bottom:0;font-size:11px;padding:10px 5px 3px;background:linear-gradient(#0000,#000b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{grid-column:1/-1;text-align:center;color:#888;padding:60px 0}
+#vimg{flex:1;min-height:0;width:100%;object-fit:contain}
+#vinfo{flex:1;font-size:13px;color:#ccc;word-break:break-all}
+.vbar{display:flex;gap:8px;justify-content:center;padding:10px 10px calc(env(safe-area-inset-bottom) + 12px);flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="vid" playsinline muted autoplay></video>
+  <div id="nocam" hidden>
+    <div id="err" style="font-size:17px;font-weight:600">기본 카메라 앱으로 촬영합니다</div>
+    <div style="color:#bbb;font-size:14px">메모 입력 → 아래 셔터(또는 키보드 Enter) →<br>카메라에서 촬영 후 확인 → 메모가 붙은 파일로 자동 저장</div>
+    <button class="btn" id="native">지금 촬영</button>
+    <button class="btn" id="retry" style="background:#ffffff26;color:#fff;font-size:13px;min-height:36px;padding:8px 12px">실시간 미리보기 다시 시도</button>
+  </div>
+
+  <div class="top">
+    <div class="row">
+      <input id="memo" type="text" placeholder="메모 (예: 현장1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn" id="plus" title="끝 숫자 +1">+1</button>
+    </div>
+    <div id="chips"></div>
+  </div>
+
+  <div class="bottom">
+    <div class="opts">
+      <label><input type="checkbox" id="autosel" checked>촬영 후 메모 바로 수정</label>
+      <label><input type="checkbox" id="stamp">사진에 메모 새기기</label>
+      <label><input type="checkbox" id="keepdl" checked>폰에 바로 저장</label>
+    </div>
+    <div class="shutrow">
+      <div class="side"><img id="thumb" alt="" hidden></div>
+      <button id="shutter" aria-label="촬영"></button>
+      <div class="side r" id="cnt">0장</div>
+    </div>
+  </div>
+
+  <div id="flash"></div>
+  <div id="toast"></div>
+  <div id="gal" hidden>
+    <div class="ghead"><button class="btn" id="gback">← 닫기</button><b id="gtitle">촬영 사진</b></div>
+    <div class="gtools"><button class="btn" id="gexport">ZIP으로 내보내기</button><button class="btn" id="gclear">이 목록 비우기</button><div id="gstat"></div></div>
+    <div id="gchips"></div>
+    <div id="ggrid"></div>
+  </div>
+  <div id="view" hidden>
+    <div class="ghead"><button class="btn" id="vback">← 목록</button><div id="vinfo"></div></div>
+    <img id="vimg" alt="">
+    <div class="vbar">
+      <button class="btn" id="vprev">◀ 최근</button>
+      <button class="btn" id="vnext">이전 ▶</button>
+      <button class="btn" id="vsave">다시 저장</button>
+      <button class="btn" id="vdel">삭제</button>
+    </div>
+  </div>
+  <input type="file" id="natin" accept="image/*" capture="environment" hidden>
+</div>
+
+<script>
+(function(){
+var $=function(s){return document.querySelector(s)};
+var memoEl=$('#memo'),vid=$('#vid'),app=$('#app'),natin=$('#natin');
+var stream=null,track=null,imgCap=null,busy=false,lastThumb=null,usedNames={},live=false;
+
+var store={
+  get:function(k,d){try{var v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+  set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+function pad(n,l){n=String(n);while(n.length<(l||2))n='0'+n;return n}
+function now(){var d=new Date();return{
+  date:d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate()),
+  time:pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()),
+  pretty:d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())
+}}
+function clean(s){return String(s||'').replace(/[\\\/:*?"<>|\r\n\t]/g,'').replace(/\s+/g,' ').trim().slice(0,60)}
+function toast(m,ms){var t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(toast.t);toast.t=setTimeout(function(){t.style.opacity=0},ms||1400)}
+
+/* 키보드가 올라와도 셔터가 보이도록 화면 크기 맞춤 */
+function fit(){var vv=window.visualViewport;if(!vv)return;app.style.height=vv.height+'px';app.style.top=vv.offsetTop+'px'}
+if(window.visualViewport){visualViewport.addEventListener('resize',fit);visualViewport.addEventListener('scroll',fit);fit()}
+
+/* 최근 메모 */
+var recent=store.get('recent',[]);
+function renderChips(){
+  var c=$('#chips');c.innerHTML='';
+  recent.forEach(function(m){
+    var b=document.createElement('button');b.className='chip';b.textContent=m;
+    b.onclick=function(){memoEl.value=m;store.set('last',m);memoEl.focus();memoEl.select();updateCnt()};
+    c.appendChild(b);
+  });
+}
+function pushRecent(m){
+  recent=[m].concat(recent.filter(function(x){return x!==m})).slice(0,8);
+  store.set('recent',recent);renderChips();
+}
+
+/* 장수 카운트 (오늘 기준) */
+function counts(){return store.get('cnt'+now().date,{})}
+function updateCnt(){
+  var c=counts(),m=clean(memoEl.value)||'사진',tot=0;
+  for(var k in c)tot+=c[k];
+  $('#cnt').innerHTML=(c[m]||0)+'장<br>오늘 '+tot+'장';
+}
+function bump(m){var c=counts();c[m]=(c[m]||0)+1;store.set('cnt'+now().date,c);updateCnt()}
+
+/* 카메라 */
+async function startCamera(){
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저/주소에서는 카메라를 쓸 수 없습니다.');
+    if(stream)stream.getTracks().forEach(function(t){t.stop()});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}},audio:false});
+    vid.srcObject=stream;
+    try{await vid.play()}catch(e){}
+    track=stream.getVideoTracks()[0];
+    imgCap=('ImageCapture' in window)?new ImageCapture(track):null;
+    live=true;
+    $('#nocam').hidden=true;
+  }catch(e){
+    live=false;
+    $('#nocam').hidden=false;
+  }
+}
+function canvasBlob(c,q){return new Promise(function(res,rej){c.toBlob(function(b){b?res(b):rej(new Error('변환 실패'))},'image/jpeg',q||0.95)})}
+
+async function grab(){
+  if(imgCap){
+    try{
+      var opt={};
+      try{var caps=await imgCap.getPhotoCapabilities();if(caps.imageWidth&&caps.imageHeight){opt={imageWidth:caps.imageWidth.max,imageHeight:caps.imageHeight.max}}}catch(e){}
+      return await imgCap.takePhoto(opt);
+    }catch(e){
+      try{return await imgCap.takePhoto()}catch(e2){}
+    }
+  }
+  var c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;
+  c.getContext('2d').drawImage(vid,0,0);
+  return canvasBlob(c);
+}
+
+async function stampBlob(blob,memo){
+  var bmp=await createImageBitmap(blob);
+  var c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;
+  var x=c.getContext('2d');x.drawImage(bmp,0,0);
+  var base=Math.min(c.width,c.height),fs=Math.round(base*0.052);
+  x.font='700 '+fs+'px system-ui,"Noto Sans KR",sans-serif';
+  x.textBaseline='alphabetic';
+  var px=Math.round(base*0.055),py=c.height-Math.round(base*0.03);
+  x.shadowColor='rgba(0,0,0,0.6)';x.shadowBlur=Math.round(fs*0.12);x.shadowOffsetX=Math.round(fs*0.04);x.shadowOffsetY=Math.round(fs*0.04);
+  x.fillStyle='#ff9f1a';x.fillText(memo,px,py);
+  return canvasBlob(c);
+}
+
+function fileName(memo){
+  var t=now(),base=memo+'_'+t.date+'_'+t.time,name=base,n=1;
+  while(usedNames[name]){n++;name=base+'-'+n}
+  usedNames[name]=1;return name+'.jpg';
+}
+function save(blob,name,skipDl){
+  if(!skipDl){
+    var a=document.createElement('a'),u=URL.createObjectURL(blob);
+    a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},15000);
+  }
+  var th=$('#thumb');if(lastThumb)URL.revokeObjectURL(lastThumb);
+  lastThumb=URL.createObjectURL(blob);th.src=lastThumb;th.hidden=false;
+}
+
+async function process(blob){
+  var memo=clean(memoEl.value)||'사진';
+  store.set('last',memoEl.value);
+  if($('#stamp').checked){try{blob=await stampBlob(blob,memo)}catch(e){}}
+  var name=fileName(memo);
+  var dl=$('#keepdl').checked;
+  save(blob,name,!dl);bump(memo);pushRecent(memo);
+  addShot(blob,memo,name).then(refreshThumb).catch(function(){});
+  toast((dl?'저장: ':'앱에 보관: ')+name);
+}
+
+async function shoot(){
+  if(!live){natin.click();return}
+  if(busy)return;busy=true;
+  var f=$('#flash');f.style.opacity=.8;setTimeout(function(){f.style.opacity=0},90);
+  try{
+    var blob=await grab();
+    await process(blob);
+  }catch(e){toast('촬영 실패: '+(e&&e.message?e.message:e),2500)}
+  busy=false;
+  if($('#autosel').checked){memoEl.focus();memoEl.select()}
+}
+
+/* 이벤트 */
+$('#shutter').addEventListener('click',shoot);
+memoEl.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();shoot()}});
+memoEl.addEventListener('input',function(){store.set('last',memoEl.value);updateCnt()});
+$('#plus').addEventListener('click',function(){
+  var v=memoEl.value;
+  if(/\d+(?!.*\d)/.test(v)){v=v.replace(/(\d+)(?!.*\d)/,function(m){return pad(parseInt(m,10)+1,m.length)})}
+  else{v=v+'2'}
+  memoEl.value=v;store.set('last',v);updateCnt();memoEl.focus();
+});
+$('#retry').addEventListener('click',startCamera);
+$('#native').addEventListener('click',function(){natin.click()});
+natin.addEventListener('change',async function(){
+  var f=natin.files&&natin.files[0];natin.value='';
+  if(!f)return;
+  try{await process(f)}catch(e){toast('저장 실패',2000)}
+  if($('#autosel').checked){memoEl.focus();memoEl.select()}
+});
+document.addEventListener('visibilitychange',function(){
+  if(!document.hidden&&(!track||track.readyState==='ended'))startCamera();
+});
+
+/* ===== ZIP 만들기 (무압축, JPG는 이미 압축됨) ===== */
+var crcT=(function(){var t=[],c,n,k;for(n=0;n<256;n++){c=n;for(k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u8){var c=0xFFFFFFFF;for(var i=0;i<u8.length;i++)c=crcT[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+async function makeZip(items){
+  var enc=new TextEncoder(),parts=[],central=[],offset=0;
+  for(var i=0;i<items.length;i++){
+    var it=items[i],nameB=enc.encode(it.name);
+    var buf=new Uint8Array(await it.blob.arrayBuffer()),crc=crc32(buf),size=buf.length;buf=null;
+    var d=new Date(it.ts),dt=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate(),tm=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1);
+    var lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,tm,true);lh.setUint16(12,dt,true);lh.setUint32(14,crc,true);lh.setUint32(18,size,true);lh.setUint32(22,size,true);
+    lh.setUint16(26,nameB.length,true);lh.setUint16(28,0,true);
+    parts.push(lh.buffer,nameB,it.blob);
+    var ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
+    ch.setUint16(12,tm,true);ch.setUint16(14,dt,true);ch.setUint32(16,crc,true);ch.setUint32(20,size,true);ch.setUint32(24,size,true);
+    ch.setUint16(28,nameB.length,true);ch.setUint32(42,offset,true);
+    central.push(ch.buffer,nameB);
+    offset+=30+nameB.length+size;
+  }
+  var csize=0;central.forEach(function(p){csize+=p.byteLength});
+  var end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,items.length,true);end.setUint16(10,items.length,true);
+  end.setUint32(12,csize,true);end.setUint32(16,offset,true);
+  return new Blob(parts.concat(central,[end.buffer]),{type:'application/zip'});
+}
+
+/* ===== 갤러리 (앱 안에 보관: IndexedDB) ===== */
+var dbp=null;
+function db(){
+  if(dbp)return dbp;
+  dbp=new Promise(function(res,rej){
+    try{
+      var r=indexedDB.open('memocam',1);
+      r.onupgradeneeded=function(){r.result.createObjectStore('shots',{keyPath:'id',autoIncrement:true})};
+      r.onsuccess=function(){res(r.result)};
+      r.onerror=function(){rej(r.error)};
+    }catch(e){rej(e)}
+  });
+  return dbp;
+}
+function tx(mode,fn){
+  return db().then(function(d){return new Promise(function(res,rej){
+    var t=d.transaction('shots',mode),out=fn(t.objectStore('shots'));
+    t.oncomplete=function(){res(out?out.result:undefined)};
+    t.onerror=t.onabort=function(){rej(t.error)};
+  })});
+}
+async function makeThumb(blob){
+  try{
+    var bmp=await createImageBitmap(blob),k=Math.min(1,360/Math.max(bmp.width,bmp.height));
+    var c=document.createElement('canvas');c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);if(bmp.close)bmp.close();
+    return await canvasBlob(c,0.7);
+  }catch(e){return null}
+}
+async function addShot(blob,memo,name){
+  var th=await makeThumb(blob);
+  await tx('readwrite',function(s){return s.add({name:name,memo:memo,ts:Date.now(),blob:blob,thumb:th||blob})});
+}
+function allShots(){return tx('readonly',function(s){return s.getAll()}).then(function(a){return (a||[]).reverse()})}
+function delShot(id){return tx('readwrite',function(s){return s.delete(id)})}
+function refreshThumb(){
+  allShots().then(function(a){
+    var th=$('#thumb');
+    if(lastThumb){URL.revokeObjectURL(lastThumb);lastThumb=null}
+    if(a.length){lastThumb=URL.createObjectURL(a[0].thumb);th.src=lastThumb;th.hidden=false}else{th.hidden=true}
+  }).catch(function(){});
+}
+
+var shots=[],gurls=[],gfilter='',vidx=-1,galOpen=false,viewOpen=false,vurl=null,delTimer=0;
+function shown(){return shots.filter(function(s){return !gfilter||s.memo===gfilter})}
+function revokeAll(a){a.forEach(function(u){URL.revokeObjectURL(u)})}
+
+async function openGal(){
+  try{shots=await allShots()}catch(e){shots=[]}
+  gfilter='';renderGal();
+  $('#gal').hidden=false;galOpen=true;
+  try{history.pushState({o:'gal'},'')}catch(e){}
+}
+function renderGal(){
+  revokeAll(gurls);gurls=[];
+  var list=shown();
+  $('#gtitle').textContent='촬영 사진 '+list.length+'장';
+  var bytes=0;shots.forEach(function(s){bytes+=s.blob.size+(s.thumb&&s.thumb!==s.blob?s.thumb.size:0)});
+  $('#gstat').textContent='앱 보관 전체 '+shots.length+'장 · '+(bytes/1048576).toFixed(1)+'MB (폰 다운로드 폴더의 파일은 별도)';
+  var memos=[];shots.forEach(function(s){if(memos.indexOf(s.memo)<0)memos.push(s.memo)});
+  var gc=$('#gchips');gc.innerHTML='';
+  [''].concat(memos).forEach(function(m){
+    var b=document.createElement('button');b.className='chip'+(m===gfilter?' on':'');
+    b.textContent=m||'전체';b.onclick=function(){gfilter=m;renderGal()};gc.appendChild(b);
+  });
+  var g=$('#ggrid');g.innerHTML='';
+  if(!list.length){g.innerHTML='<div class="empty">아직 사진이 없습니다</div>';return}
+  list.forEach(function(s,i){
+    var d=document.createElement('div');d.className='cell';
+    var im=document.createElement('img'),u=URL.createObjectURL(s.thumb);gurls.push(u);im.src=u;
+    var l=document.createElement('span');l.textContent=s.memo;
+    d.appendChild(im);d.appendChild(l);d.onclick=function(){openView(i)};g.appendChild(d);
+  });
+}
+function hideGal(){galOpen=false;$('#gal').hidden=true;revokeAll(gurls);gurls=[];refreshThumb()}
+
+function openView(i){
+  vidx=i;
+  if(!viewOpen){
+    viewOpen=true;$('#view').hidden=false;
+    try{history.pushState({o:'view'},'')}catch(e){}
+  }
+  showView();
+}
+function armDel(on){
+  clearTimeout(delTimer);delTimer=on?setTimeout(function(){armDel(false)},3000):0;
+  $('#vdel').textContent=on?'한 번 더 누르면 삭제':'삭제';
+}
+function showView(){
+  var list=shown(),s=list[vidx];
+  if(!s){back();return}
+  if(vurl)URL.revokeObjectURL(vurl);
+  vurl=URL.createObjectURL(s.blob);$('#vimg').src=vurl;
+  $('#vinfo').textContent=s.name+'  ('+(vidx+1)+'/'+list.length+')';
+  armDel(false);
+}
+function hideView(){
+  viewOpen=false;$('#view').hidden=true;$('#vimg').removeAttribute('src');
+  if(vurl){URL.revokeObjectURL(vurl);vurl=null}
+}
+function back(){
+  if(history.state&&history.state.o){history.back()}
+  else{if(viewOpen)hideView();else if(galOpen)hideGal()}
+}
+window.addEventListener('popstate',function(){if(viewOpen)hideView();else if(galOpen)hideGal()});
+
+$('#thumb').addEventListener('click',openGal);
+$('#gback').addEventListener('click',back);
+$('#gexport').addEventListener('click',async function(){
+  var list=shown(),btn=this;
+  if(!list.length){toast('내보낼 사진이 없습니다');return}
+  var total=0;list.forEach(function(s){total+=s.blob.size});
+  if(total>3.5e9){toast('용량이 너무 큽니다. 위쪽 메모 버튼으로 나눠서 내보내세요',3500);return}
+  btn.disabled=true;toast('ZIP 만드는 중… ('+list.length+'장)',3000);
+  try{
+    var z=await makeZip(list.slice().reverse());
+    var fn='현장사진_'+now().date+(gfilter?'_'+gfilter:'')+'.zip';
+    var a=document.createElement('a'),u=URL.createObjectURL(z);
+    a.href=u;a.download=fn;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},60000);
+    toast('저장: '+fn,2500);
+  }catch(e){toast('내보내기 실패: '+(e&&e.message?e.message:e),3500)}
+  btn.disabled=false;
+});
+var clrT=0;
+$('#gclear').addEventListener('click',async function(){
+  var list=shown(),b=this;
+  if(!list.length)return;
+  if(!clrT){
+    b.textContent='한 번 더 누르면 '+list.length+'장 삭제';
+    clrT=setTimeout(function(){clrT=0;b.textContent='이 목록 비우기'},3000);return;
+  }
+  clearTimeout(clrT);clrT=0;b.textContent='이 목록 비우기';
+  try{for(var i=0;i<list.length;i++)await delShot(list[i].id)}catch(e){}
+  try{shots=await allShots()}catch(e){shots=[]}
+  gfilter='';renderGal();toast('앱 목록에서 비웠습니다');
+});
+$('#vback').addEventListener('click',back);
+$('#vprev').addEventListener('click',function(){if(vidx>0){vidx--;showView()}});
+$('#vnext').addEventListener('click',function(){if(vidx<shown().length-1){vidx++;showView()}});
+$('#vsave').addEventListener('click',function(){
+  var s=shown()[vidx];if(!s)return;
+  var a=document.createElement('a'),u=URL.createObjectURL(s.blob);
+  a.href=u;a.download=s.name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u)},15000);toast('다시 저장: '+s.name);
+});
+$('#vdel').addEventListener('click',function(){
+  if(!delTimer){armDel(true);return}
+  armDel(false);
+  var s=shown()[vidx];if(!s)return;
+  delShot(s.id).then(function(){
+    shots=shots.filter(function(x){return x.id!==s.id});
+    var n=shown().length;renderGal();
+    if(!n){back();return}
+    if(vidx>=n)vidx=n-1;
+    showView();toast('앱 목록에서 삭제했습니다');
+  }).catch(function(){toast('삭제 실패')});
+});
+(function(){
+  var x0=null,im=$('#vimg');
+  im.addEventListener('touchstart',function(e){x0=e.touches.length===1?e.touches[0].clientX:null},{passive:true});
+  im.addEventListener('touchend',function(e){
+    if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;x0=null;
+    if(dx>60)$('#vprev').click();else if(dx<-60)$('#vnext').click();
+  },{passive:true});
+})();
+refreshThumb();
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+
+$('#keepdl').checked=store.get('keepdl',true);
+$('#keepdl').addEventListener('change',function(){
+  store.set('keepdl',this.checked);
+  toast(this.checked?'촬영할 때마다 폰에 저장됩니다':'앱에만 보관합니다. 나중에 갤러리에서 ZIP으로 내보내세요',2600);
+});
+if('serviceWorker' in navigator){try{navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}}
+
+memoEl.value=store.get('last','');
+renderChips();updateCnt();startCamera();
+setTimeout(function(){memoEl.focus();memoEl.select()},300);
+})();
+</script>
+</body>
+</html>

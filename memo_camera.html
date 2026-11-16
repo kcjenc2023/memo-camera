@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>메모 카메라</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="icon-192.png">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
@@ -34,6 +37,9 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 #nocam{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#111;font-size:15px;line-height:1.5}
 #nocam .btn{background:#ffd54a;color:#000}
 #thumb{cursor:pointer}
+.gtools{display:flex;gap:8px;align-items:center;padding:0 12px 8px;flex-wrap:wrap}
+.gtools .btn{min-height:40px;font-size:14px;padding:8px 12px}
+#gstat{font-size:12px;color:#aaa;flex-basis:100%}
 #gal,#view{position:absolute;inset:0;z-index:6;background:#0b0b0b;display:flex;flex-direction:column}
 #view{z-index:7;background:#000}
 .ghead{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 12px 8px}
@@ -73,6 +79,7 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
     <div class="opts">
       <label><input type="checkbox" id="autosel" checked>촬영 후 메모 바로 수정</label>
       <label><input type="checkbox" id="stamp">사진에 메모 새기기</label>
+      <label><input type="checkbox" id="keepdl" checked>폰에 바로 저장</label>
     </div>
     <div class="shutrow">
       <div class="side"><img id="thumb" alt="" hidden></div>
@@ -85,6 +92,7 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
   <div id="toast"></div>
   <div id="gal" hidden>
     <div class="ghead"><button class="btn" id="gback">← 닫기</button><b id="gtitle">촬영 사진</b></div>
+    <div class="gtools"><button class="btn" id="gexport">ZIP으로 내보내기</button><button class="btn" id="gclear">이 목록 비우기</button><div id="gstat"></div></div>
     <div id="gchips"></div>
     <div id="ggrid"></div>
   </div>
@@ -200,10 +208,12 @@ function fileName(memo){
   while(usedNames[name]){n++;name=base+'-'+n}
   usedNames[name]=1;return name+'.jpg';
 }
-function save(blob,name){
-  var a=document.createElement('a'),u=URL.createObjectURL(blob);
-  a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
-  setTimeout(function(){URL.revokeObjectURL(u)},15000);
+function save(blob,name,skipDl){
+  if(!skipDl){
+    var a=document.createElement('a'),u=URL.createObjectURL(blob);
+    a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},15000);
+  }
   var th=$('#thumb');if(lastThumb)URL.revokeObjectURL(lastThumb);
   lastThumb=URL.createObjectURL(blob);th.src=lastThumb;th.hidden=false;
 }
@@ -213,9 +223,10 @@ async function process(blob){
   store.set('last',memoEl.value);
   if($('#stamp').checked){try{blob=await stampBlob(blob,memo)}catch(e){}}
   var name=fileName(memo);
-  save(blob,name);bump(memo);pushRecent(memo);
+  var dl=$('#keepdl').checked;
+  save(blob,name,!dl);bump(memo);pushRecent(memo);
   addShot(blob,memo,name).then(refreshThumb).catch(function(){});
-  toast('저장: '+name);
+  toast((dl?'저장: ':'앱에 보관: ')+name);
 }
 
 async function shoot(){
@@ -251,6 +262,34 @@ natin.addEventListener('change',async function(){
 document.addEventListener('visibilitychange',function(){
   if(!document.hidden&&(!track||track.readyState==='ended'))startCamera();
 });
+
+/* ===== ZIP 만들기 (무압축, JPG는 이미 압축됨) ===== */
+var crcT=(function(){var t=[],c,n,k;for(n=0;n<256;n++){c=n;for(k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(u8){var c=0xFFFFFFFF;for(var i=0;i<u8.length;i++)c=crcT[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+async function makeZip(items){
+  var enc=new TextEncoder(),parts=[],central=[],offset=0;
+  for(var i=0;i<items.length;i++){
+    var it=items[i],nameB=enc.encode(it.name);
+    var buf=new Uint8Array(await it.blob.arrayBuffer()),crc=crc32(buf),size=buf.length;buf=null;
+    var d=new Date(it.ts),dt=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate(),tm=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1);
+    var lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,tm,true);lh.setUint16(12,dt,true);lh.setUint32(14,crc,true);lh.setUint32(18,size,true);lh.setUint32(22,size,true);
+    lh.setUint16(26,nameB.length,true);lh.setUint16(28,0,true);
+    parts.push(lh.buffer,nameB,it.blob);
+    var ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
+    ch.setUint16(12,tm,true);ch.setUint16(14,dt,true);ch.setUint32(16,crc,true);ch.setUint32(20,size,true);ch.setUint32(24,size,true);
+    ch.setUint16(28,nameB.length,true);ch.setUint32(42,offset,true);
+    central.push(ch.buffer,nameB);
+    offset+=30+nameB.length+size;
+  }
+  var csize=0;central.forEach(function(p){csize+=p.byteLength});
+  var end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,items.length,true);end.setUint16(10,items.length,true);
+  end.setUint32(12,csize,true);end.setUint32(16,offset,true);
+  return new Blob(parts.concat(central,[end.buffer]),{type:'application/zip'});
+}
 
 /* ===== 갤러리 (앱 안에 보관: IndexedDB) ===== */
 var dbp=null;
@@ -309,6 +348,8 @@ function renderGal(){
   revokeAll(gurls);gurls=[];
   var list=shown();
   $('#gtitle').textContent='촬영 사진 '+list.length+'장';
+  var bytes=0;shots.forEach(function(s){bytes+=s.blob.size+(s.thumb&&s.thumb!==s.blob?s.thumb.size:0)});
+  $('#gstat').textContent='앱 보관 전체 '+shots.length+'장 · '+(bytes/1048576).toFixed(1)+'MB (폰 다운로드 폴더의 파일은 별도)';
   var memos=[];shots.forEach(function(s){if(memos.indexOf(s.memo)<0)memos.push(s.memo)});
   var gc=$('#gchips');gc.innerHTML='';
   [''].concat(memos).forEach(function(m){
@@ -358,6 +399,35 @@ window.addEventListener('popstate',function(){if(viewOpen)hideView();else if(gal
 
 $('#thumb').addEventListener('click',openGal);
 $('#gback').addEventListener('click',back);
+$('#gexport').addEventListener('click',async function(){
+  var list=shown(),btn=this;
+  if(!list.length){toast('내보낼 사진이 없습니다');return}
+  var total=0;list.forEach(function(s){total+=s.blob.size});
+  if(total>3.5e9){toast('용량이 너무 큽니다. 위쪽 메모 버튼으로 나눠서 내보내세요',3500);return}
+  btn.disabled=true;toast('ZIP 만드는 중… ('+list.length+'장)',3000);
+  try{
+    var z=await makeZip(list.slice().reverse());
+    var fn='현장사진_'+now().date+(gfilter?'_'+gfilter:'')+'.zip';
+    var a=document.createElement('a'),u=URL.createObjectURL(z);
+    a.href=u;a.download=fn;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},60000);
+    toast('저장: '+fn,2500);
+  }catch(e){toast('내보내기 실패: '+(e&&e.message?e.message:e),3500)}
+  btn.disabled=false;
+});
+var clrT=0;
+$('#gclear').addEventListener('click',async function(){
+  var list=shown(),b=this;
+  if(!list.length)return;
+  if(!clrT){
+    b.textContent='한 번 더 누르면 '+list.length+'장 삭제';
+    clrT=setTimeout(function(){clrT=0;b.textContent='이 목록 비우기'},3000);return;
+  }
+  clearTimeout(clrT);clrT=0;b.textContent='이 목록 비우기';
+  try{for(var i=0;i<list.length;i++)await delShot(list[i].id)}catch(e){}
+  try{shots=await allShots()}catch(e){shots=[]}
+  gfilter='';renderGal();toast('앱 목록에서 비웠습니다');
+});
 $('#vback').addEventListener('click',back);
 $('#vprev').addEventListener('click',function(){if(vidx>0){vidx--;showView()}});
 $('#vnext').addEventListener('click',function(){if(vidx<shown().length-1){vidx++;showView()}});
@@ -388,6 +458,14 @@ $('#vdel').addEventListener('click',function(){
   },{passive:true});
 })();
 refreshThumb();
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+
+$('#keepdl').checked=store.get('keepdl',true);
+$('#keepdl').addEventListener('change',function(){
+  store.set('keepdl',this.checked);
+  toast(this.checked?'촬영할 때마다 폰에 저장됩니다':'앱에만 보관합니다. 나중에 갤러리에서 ZIP으로 내보내세요',2600);
+});
+if('serviceWorker' in navigator){try{navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}}
 
 memoEl.value=store.get('last','');
 renderChips();updateCnt();startCamera();
