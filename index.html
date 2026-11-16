@@ -374,6 +374,17 @@ function downloadBlob(blob,name){
   a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(function(){URL.revokeObjectURL(u)},15000);
 }
+/* 설치형 앱(APK)일 때: 폰 Pictures/사업명 폴더에 직접 저장 */
+var NATP=null;
+try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())NATP=Capacitor.Plugins.MediaSaver||null}catch(e){}
+function blobB64(b){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(',')[1]||'')};r.onerror=rej;r.readAsDataURL(b)})}
+async function nativeSave(blob,name,mime,replace){
+  if(!NATP)return false;
+  try{
+    var r=await NATP.save({folder:clean(cfg.proj)||'현장사진',name:name,mime:mime||'image/jpeg',data:await blobB64(blob),replace:!!replace});
+    return !!(r&&r.ok);
+  }catch(e){return false}
+}
 /* 저장 폴더를 지정한 경우: 그 안의 "사업명" 폴더에 알림 없이 저장 */
 async function saveToDir(blob,name){
   if(!dirHandle)return false;
@@ -399,7 +410,8 @@ async function process(blob,native){
   try{blob=await finalize(blob,memo,native,stampLines(memo,info))}catch(e){toast('사진 변환 실패 (원본 저장)',2000)}
   var name=fileName(memo);
   var dl=$('#keepdl').checked,inDir=false;
-  if(dirHandle){inDir=await saveToDir(blob,name);if(!inDir)toast('지정한 폴더에 저장하지 못했습니다',2200)}
+  if(NATP){inDir=await nativeSave(blob,name,'image/jpeg');if(!inDir)toast('폰 폴더에 저장하지 못했습니다',2200)}
+  else if(dirHandle){inDir=await saveToDir(blob,name);if(!inDir)toast('지정한 폴더에 저장하지 못했습니다',2200)}
   save(blob,name,inDir||!dl);bump(memo);pushRecent(memo);
   var rt=(retake&&retake.memo===memo)?retake:null;
   addShot(blob,memo,name,info).then(function(){
@@ -413,7 +425,7 @@ async function process(blob,native){
     toast('앱 보관 실패(저장 공간 부족?)'+(inDir||dl?'':' · 폰에 바로 저장합니다'),3200);
     if(!inDir&&!dl)downloadBlob(blob,name);
   });
-  if(inDir)toast('폴더 저장: '+(clean(cfg.proj)?clean(cfg.proj)+'/':'')+name);
+  if(inDir)toast('폴더 저장: '+(clean(cfg.proj)||(NATP?'현장사진':''))+'/'+name);
   else if(!dirHandle||dl)toast((dl?'저장: ':'앱에 보관: ')+name);
   else toast('앱에 보관: '+name);
   try{if(navigator.vibrate)navigator.vibrate(25)}catch(e){}
@@ -725,6 +737,8 @@ refreshThumb();
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 
 $('#keepdl').checked=store.get('keepdl2',false);
+if(NATP){var kl=$('#keepdl').closest('label');if(kl)kl.style.display='none';$('#keepdl').checked=false;
+  $('#s-savehint').textContent='';setTimeout(function(){$('#s-savehint').textContent='설치형 앱: 사진은 촬영 즉시 폰의 Pictures/사업명 폴더에 저장됩니다. 이 버튼은 누락분 보충 + 촬영목록.csv 저장용입니다.'},0)}
 $('#keepdl').addEventListener('change',function(){
   store.set('keepdl2',this.checked);
   toast(this.checked?'촬영할 때마다 폰에 저장됩니다 (상단에 다운로드 알림이 뜹니다)':'앱에만 보관합니다. 나중에 갤러리에서 ZIP으로 내보내세요',2800);
@@ -809,6 +823,13 @@ async function saveAll(){
     try{list=await withTimeout(allShots(),6000)}catch(e){toast('사진 목록을 불러오지 못했습니다',2500);return}
     if(!list.length){toast('저장할 사진이 없습니다',2000);return}
     var P=clean(cfg.proj)||'현장사진',asc=list.slice().reverse();
+    if(NATP){
+      var ok=0;
+      for(var k=0;k<asc.length;k++){toast((k+1)+'/'+asc.length+' 저장 중…',900);if(await nativeSave(asc[k].blob,asc[k].name,'image/jpeg'))ok++}
+      await nativeSave(csvBlob(asc),'촬영목록.csv','text/csv',true);
+      toast('저장 완료: Pictures/'+P+' ('+ok+'장 + 촬영목록.csv)',3500);
+      return;
+    }
     if(dirHandle){
       try{
         var perm=await dirHandle.queryPermission({mode:'readwrite'});
@@ -837,7 +858,7 @@ var dirHandle=null;
 function refreshDirUI(){
   $('#s-dirbox').hidden=!('showDirectoryPicker' in window);
   $('#s-dirname').textContent=dirHandle?('저장 폴더: '+dirHandle.name+(clean(cfg.proj)?' / '+clean(cfg.proj):'')):'지정 안 됨 (다운로드 폴더에 저장)';
-  $('#s-savehint').textContent=dirHandle
+  $('#s-savehint').textContent=NATP?'설치형 앱: 사진은 촬영 즉시 폰의 Pictures/사업명 폴더에 저장됩니다. 이 버튼은 누락분 보충 + 촬영목록.csv 저장용입니다.':dirHandle
     ?'지정한 저장 폴더 안에 사업명 이름의 폴더를 만들어 모든 사진을 저장합니다.'
     :'사업명 이름의 폴더가 들어 있는 ZIP 파일로 저장합니다. 저장 후 내 파일에서 ZIP을 눌러 압축을 풀면 사업명 폴더가 만들어지고, 그 폴더를 Pictures로 옮기면 갤러리 앨범이 됩니다.';
 }
@@ -860,7 +881,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v11 · 2026-11-16';
+var VER='v12 · 2026-11-16';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
