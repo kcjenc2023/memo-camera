@@ -108,12 +108,50 @@ jobs:
             public void onCreate(Bundle savedInstanceState) {
               registerPlugin(MediaSaver.class);
               super.onCreate(savedInstanceState);
+              getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             }
           }
           JAVA
-          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n</manifest>#' AndroidManifest.xml
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n</manifest>#' AndroidManifest.xml
           sed -i 's#<activity#<activity android:screenOrientation="portrait"#' AndroidManifest.xml
           cat AndroidManifest.xml
+      - name: 앱 아이콘 만들기
+        run: |
+          R=app/android/app/src/main/res
+          mkdir -p $R/drawable $R/values $R/mipmap-anydpi-v26
+          cat > $R/values/ic_memo_colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <color name="ic_memo_bg">#0F2A44</color>
+          </resources>
+          XML
+          cat > $R/drawable/ic_memo_fg.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#FFFFFF" android:pathData="M42,36 H54 L57,42 H39 Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M36,42 H72 A6,6 0 0 1 78,48 V68 A6,6 0 0 1 72,74 H36 A6,6 0 0 1 30,68 V48 A6,6 0 0 1 36,42 Z"/>
+            <path android:fillColor="#0F2A44" android:pathData="M46,58 A11,11 0 1 0 68,58 A11,11 0 1 0 46,58 Z"/>
+            <path android:fillColor="#FF9F1A" android:pathData="M50,58 A7,7 0 1 0 64,58 A7,7 0 1 0 50,58 Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M55,55 A2,2 0 1 0 59,55 A2,2 0 1 0 55,55 Z"/>
+            <path android:fillColor="#FF9F1A" android:pathData="M34,60 H42 V63 H34 Z"/>
+            <path android:fillColor="#FF9F1A" android:pathData="M34,66 H44 V70 H34 Z"/>
+          </vector>
+          XML
+          for N in ic_launcher ic_launcher_round; do
+          cat > $R/mipmap-anydpi-v26/$N.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+            <background android:drawable="@color/ic_memo_bg"/>
+            <foreground android:drawable="@drawable/ic_memo_fg"/>
+          </adaptive-icon>
+          XML
+          done
+      - name: 고정 서명키 설치 (업데이트할 때 덮어 설치되게 함)
+        run: |
+          mkdir -p ~/.android
+          echo "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" | base64 -d > ~/.android/debug.keystore
       - name: APK 빌드
         run: |
           cd app/android
