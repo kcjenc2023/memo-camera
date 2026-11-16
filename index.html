@@ -76,9 +76,10 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;backgrou
 
   <div class="top">
     <div class="row">
-      <input id="memo" type="text" placeholder="메모 (예: 현장1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="memo" type="text" placeholder="메모 (예: BD-1)" enterkeyhint="go" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button class="btn" id="mclr" title="메모 지우기" style="padding:12px 13px">✕</button>
-      <button class="btn" id="plus" title="끝 숫자 +1">+1</button>
+      <button class="btn" id="minus" title="끝 숫자 -1" style="padding:12px 12px">-1</button>
+      <button class="btn" id="plus" title="끝 숫자 +1" style="padding:12px 12px">+1</button>
       <button class="btn" id="gear" title="설정">⚙</button>
     </div>
     <div id="chips"></div>
@@ -486,12 +487,22 @@ async function shoot(){
 $('#shutter').addEventListener('click',shoot);
 memoEl.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();shoot()}});
 memoEl.addEventListener('input',function(){store.set('last',memoEl.value);updateCnt()});
-$('#plus').addEventListener('click',function(){
+/* 메모 끝 숫자 +1 / -1 (자판은 띄우지 않음) */
+function stepMemo(d){
   var v=memoEl.value;
-  if(/\d+(?!.*\d)/.test(v)){v=v.replace(/(\d+)(?!.*\d)/,function(m){return pad(parseInt(m,10)+1,m.length)})}
-  else{v=v+'2'}
-  memoEl.value=v;store.set('last',v);updateCnt();memoEl.focus();
-});
+  if(!/\d+(?!.*\d)/.test(v)){
+    if(d>0){v=v+'2'}else{toast('메모 끝에 숫자가 없습니다',1500);return}
+  }else{
+    v=v.replace(/(\d+)(?!.*\d)/,function(m){
+      var n=Math.max(0,parseInt(m,10)+d);
+      return m.charAt(0)==='0'&&m.length>1?pad(n,m.length):String(n);
+    });
+  }
+  memoEl.value=v;store.set('last',v);updateCnt();
+  try{memoEl.blur()}catch(e){}
+}
+$('#plus').addEventListener('click',function(){stepMemo(1)});
+$('#minus').addEventListener('click',function(){stepMemo(-1)});
 $('#retry').addEventListener('click',startCamera);
 $('#native').addEventListener('click',function(){natin.click()});
 natin.addEventListener('change',async function(){
@@ -970,7 +981,7 @@ $('#s-dirclear').addEventListener('click',async function(){
 });
 
 /* 앱 버전 / 최신 버전으로 새로고침 */
-var VER='v14 · 2026-11-16';
+var VER='v16 · 2026-11-16';
 $('#s-ver').textContent=VER;
 $('#s-update').addEventListener('click',async function(){
   try{
